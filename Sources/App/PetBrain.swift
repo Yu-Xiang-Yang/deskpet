@@ -40,22 +40,37 @@ final class PetBrain {
         var s = settings.persona.trimmingCharacters(in: .whitespacesAndNewlines)
         s += "\n\n你的名字是「\(settings.petName)」。"
         if let look = settings.characterLook { s += "你的外形是\(look)。" }
-        s += settings.ownerSection
         let user = settings.userName.trimmingCharacters(in: .whitespaces)
         if !user.isEmpty { s += "用户希望你称呼其为「\(user)」。" }
+        s += settings.ownerSection
+        s += MemoryStore.shared.promptSection
         s += """
 
 
         ## 回复格式
         始终只输出一个 JSON 对象，不输出任何其它文字：
-        {"reply": "你说的话", "motion": "动作", "remind": null}
+        {"reply": "你说的话", "motion": "动作", "remind": null, "weather_city": null, "remember": null, "forget": null}
         - reply：口语化、简短（一般不超过 60 个字），可以使用颜文字；使用与用户相同的语言。
         - motion：从 idle, happy, wave, nod, shake, think, surprised, sleepy, shy, eat, sad 中选择最贴合语气的一个。
         - remind：当用户请求在一段时间后提醒某件事时，填写 {"minutes": 距现在的分钟数, "text": "提醒内容"}；否则为 null。
-        用户消息开头方括号中的内容是系统提供的上下文（当前时间、主人所在地天气等），不是用户本人说的话。
         - weather_city：用户问到上下文里没有的地方的天气时，填写该城市名，reply 写一句“我查一下～”之类的话；\
         系统随后会提供天气数据，再请你正式回答。其它情况为 null。
-        需要长篇解答的学术问题，请简要回答并建议用户在右键菜单中打开“科研模式”。
+        """
+        if settings.autoMemory {
+            s += """
+
+            - remember：主人透露了值得长期记住、且记忆库中尚未包含的信息时（个人偏好与忌口、过敏与健康状况、重要日期与计划、\
+            身份与研究方向、家人朋友与宠物、作息与习惯等），用一句简洁的第三人称陈述填写，例如“主人对花生过敏”“主人 11 月 20 日答辩”；\
+            寒暄、一时的情绪、临时的小事、记忆库中已有的信息一律为 null。
+            """
+        } else {
+            s += "\n- remember：始终为 null。"
+        }
+        s += """
+
+        - forget：主人要求忘掉某件事时，填写能匹配相关记忆的关键词；否则为 null。
+        用户消息开头方括号中的内容是系统提供的上下文（当前时间、主人所在地天气等），不是用户本人说的话。
+        回答时自然地参考记忆库，但不要每次都复述记忆。需要长篇解答的学术问题，请简要回答并建议用户在右键菜单中打开“科研模式”。
         """
         return s
     }
@@ -165,6 +180,13 @@ final class PetBrain {
         pet.play(reply.motion)
         pet.say(reply.reply)
         if let remind = reply.remind { onRemind?(remind) }
+        if let keyword = reply.forget {
+            let n = MemoryStore.shared.forget(keyword)
+            if n > 0 { pet.say(tr("🗑 已忘掉 \(n) 条关于“\(keyword)”的记忆", "🗑 Forgot \(n) memories about “\(keyword)”"), kind: "memory") }
+        }
+        if settings.autoMemory, let fact = reply.remember, MemoryStore.shared.add(fact) {
+            pet.say(tr("📝 记下了：", "📝 Noted: ") + fact, kind: "memory")
+        }
     }
 
     /// A one-off instruction to the persona, not stored in the conversation (remarks, reminder wording).

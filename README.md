@@ -13,13 +13,15 @@ DeskPet 是一款原生 macOS 桌面宠物应用。Live2D 角色以透明窗口�
 | 角色渲染 | Live2D 模型（Cubism 3/4 运行时格式，PixiJS WebGL 渲染），于“设置 → 通用 → 形象”中切换，缺省优先使用 Tororo；未找到模型或 Cubism Core 时以气泡提示 |
 | 交互 | 拖动移动并记忆位置；透明像素区域的点击穿透至下层窗口；单击头部触发摸头反应，单击身体打开对话输入框；全局快捷键（默认 ⌥Space，可更换或关闭）呼出或收起输入框；右键菜单 |
 | 对话气泡 | 用户消息与角色回复以气泡形式堆叠于头顶，最多保留 3 条：新气泡位于底部，较早的气泡上移并降低不透明度，各自计时后淡出（科研回答按长度停留 10–30 s，右上角“×”可立即关闭）；指针停留于气泡上时暂停计时，移开后重新计时；窗口伸出屏幕边缘时，气泡与对话输入框自动收回屏幕内 |
-| 对话 | 模型以结构化 JSON 返回 `reply`、`motion`、`remind` 与 `weather_city` 字段：`motion` 驱动 11 种语义动作，`remind` 创建一次性提醒，`weather_city` 请求查询其它城市天气后再作答 |
+| 对话 | 模型以结构化 JSON 返回 `reply`、`motion`、`remind`、`weather_city`、`remember` 与 `forget` 字段：`motion` 驱动 11 种语义动作，`remind` 创建一次性提醒，`weather_city` 请求查询其它城市天气后再作答，`remember` 与 `forget` 写入或删除记忆库条目 |
 | 音乐律动 | 经 Core Audio 进程对象检测其它应用的音频输出（无需授权，持续 1.5 s 以上视为播放）；默认经系统音频监听（Core Audio process tap，需“系统音频录制”授权）分析约 150 Hz 以下的低频能量以检测节拍，由节拍间隔中位数估计速度，驱动抬头状态下的半拍速左右摆动；未获授权或关闭“跟随真实节拍”时按约 112 BPM 摆动；播放期间角色不进入睡眠 |
 | 主动行为 | 按设定间隔发出闲聊气泡（本地语料与模型生成按比例混合）；按“自由走动”设置的间隔沿当前高度跳跃挪位；随机播放舔爪、挠耳等待机动作；用户离开 5 分钟后进入睡眠状态 |
 | 提醒 | 吃饭、上下班（可限定工作日）、久坐、喝水、25 分钟专注计时；以气泡、动作与系统通知同时呈现，通知提供“10 分钟后再提醒”操作 |
 | 科研模式 | 角色的一种状态，由右键菜单或状态栏菜单开关；开启期间聊天框的输入交由科研助手回答，问题与回答以气泡呈现：回答气泡支持 Markdown 与 KaTeX、可滚动，单击打开完整对话；角色暂停自由走动 |
 | 消息列表 | 状态栏中独立的图标及右键菜单“消息列表”，列出最近 12 个对话；完整窗口支持对话列表、搜索、重命名、删除与继续提问 |
 | 每日任务 | 每天首次启动或当天首次有操作时，依次执行“设置 → 每日任务”中的任务（每行一项），结果以气泡呈现并保存为“每日简报 · M月D日”；该功能始终启用检索工具 |
+| 记忆库 | 对话中出现的长期有效信息（偏好、过敏、重要日期、长期计划等）由模型经 `remember` 字段自动写入，并以“📝 记下了”气泡提示；用户可要求遗忘（`forget` 字段按关键词删除）。条目在“设置 → 记忆”中查看、手动添加与删除；按时间由新到旧附加于闲聊、科研与每日任务的系统提示词（上限 2400 字符）。去重规则：规范化后相同、互相包含，或仅存在少量字符插入（较短文本按序保留于较长文本且长度比 ≥ 0.7）时，以新表述替换旧条目；词语替换视为不同事实 |
+| 天气变化提醒 | 依据“主人信息”中的城市，每 20 分钟获取一次 Open-Meteo 逐小时预报并与当前天气比较：当前无降水而 3 小时内降水概率 ≥ 60%（或降水天气代码且概率 ≥ 40%）时提醒带伞；6 小时内出现雷暴、大雨、大雪或风速 ≥ 45 km/h 时发出预警（两类各 6 小时内至多一次）；17:00 后若明日最高气温较今日变化 ≥ 6 °C 或明日降水概率 ≥ 70%，每日提醒一次。提醒以气泡、动作与系统通知呈现，可在“设置 → 提醒”中关闭或立即检查 |
 | 主人信息 | “设置 → 主人信息”中的所在城市（闲聊上下文附带当地天气，缓存 30 分钟）与自由文本背景，附加于闲聊、科研与每日任务的系统提示词 |
 | 检索工具 | Claude 另可使用服务端 `web_search`；两种服务均可调用客户端工具 `search_arxiv`、`search_semantic_scholar`、`search_news`、`get_stock_quotes`、`get_weather` 与 `fetch_webpage`（详见第 6 节） |
 
@@ -96,8 +98,9 @@ scripts/install-live2d.sh ~/Downloads/CubismSdkForWeb-5-r.5.zip ~/Downloads/toro
 | 内容 | 位置 |
 | --- | --- |
 | 对话记录 | `~/Library/Application Support/DeskPet/conversations/*.json` |
+| 记忆库 | `~/Library/Application Support/DeskPet/memories.json` |
 | Live2D 模型与 Cubism Core | `~/Library/Application Support/DeskPet/models/` |
-| 设置、窗口位置、提醒状态 | UserDefaults（域 `local.deskpet`） |
+| 设置、窗口位置、提醒与天气提醒状态 | UserDefaults（域 `local.deskpet`） |
 | API key | 钥匙串（service `local.deskpet`） |
 
 应用仅向以下地址发起网络请求：所选模型服务的 API 地址、`export.arxiv.org`、`api.semanticscholar.org`、`www.bing.com`、`news.google.com`、`query1.finance.yahoo.com`、`api.open-meteo.com` 与 `geocoding-api.open-meteo.com`，以及模型通过 `fetch_webpage` 指定的公网网页。系统音频仅在本机实时分析节拍，不录制、不保存、不上传。环境变量 `DESKPET_DIR` 可覆盖数据目录并启用测试钥匙串项，供测试使用。
@@ -108,9 +111,9 @@ scripts/install-live2d.sh ~/Downloads/CubismSdkForWeb-5-r.5.zip ~/Downloads/toro
 DeskPet/
 ├── build.sh                  构建与安装脚本（swiftc，无 Xcode 工程）
 ├── Sources/
-│   ├── Core/                 与界面无关的逻辑：JSON、SSE 解析、回复解析、提醒规则、本地化
+│   ├── Core/                 与界面无关的逻辑：JSON、SSE 解析、回复解析、提醒规则、天气提醒规则、记忆去重、本地化
 │   ├── LLM/                  LLMProvider 协议、Anthropic 与 OpenAI 兼容实现、检索工具与天气服务
-│   └── App/                  AppKit/SwiftUI：宠物窗口、对话输入框、消息列表、科研引擎、设置、提醒、音乐监测
+│   └── App/                  AppKit/SwiftUI：宠物窗口、对话输入框、消息列表、科研引擎、设置、提醒、记忆库、天气监测、音乐监测
 ├── Resources/
 │   ├── web/                  pet.html/js/css（角色与气泡）、research.html/js/css（消息列表）、md.js（Markdown 与公式）
 │   ├── model-maps/           示例模型 Tororo 与 Hijiki 的动作映射
@@ -129,7 +132,7 @@ scripts/selftest.sh
 scripts/integration-test.sh
 ```
 
-- `selftest.sh` 编译 `Sources/Core`、`Sources/LLM` 与 `Tests/main.swift`，共 66 项检查，覆盖 SSE 解析、两种流式累加器（含正文中工具调用标记的隐藏与解析）、服务端回退后的内容块清理、请求体字段、宠物回复解析、提醒规则，以及新闻、行情、网页与天气工具的辅助函数。
+- `selftest.sh` 编译 `Sources/Core`、`Sources/LLM`、`Sources/App/MemoryStore.swift` 与 `Tests/main.swift`，共 88 项检查，覆盖 SSE 解析、两种流式累加器（含正文中工具调用标记的隐藏与解析）、服务端回退后的内容块清理、请求体字段、宠物回复解析（含记忆字段）、提醒规则、记忆去重与持久化、天气变化提醒规则，以及新闻、行情、网页与天气工具的辅助函数。
 - `integration-test.sh` 启动 `Tests/mock_server.py`（模拟两种 API 的流式响应，按 7 字节分片写出），以真实 HTTP 流验证工具循环、thinking 块原样回放、回退请求头、HTTP 错误信息与 JSON 模式；检索工具调用真实的 arXiv、Semantic Scholar、新闻、行情与天气接口（需要网络）。
 
 ## 10. 许可与致谢

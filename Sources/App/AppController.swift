@@ -8,6 +8,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private let pet = PetWindowController()
     private lazy var brain = PetBrain(pet: pet)
     private lazy var reminders = ReminderScheduler { [weak self] text, motion in self?.brain.remind(text, motion: motion) }
+    private lazy var weather = WeatherWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
     private let engine = ResearchEngine()
     private lazy var research = ResearchWindowController(engine: engine)
     private let settingsWindow = SettingsWindowController()
@@ -43,6 +44,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }
         brain.start()
         reminders.start()
+        weather.start()
 
         chatPanel.onSend = { [weak self] text in
             guard let self else { return }
@@ -56,6 +58,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }
         settingsWindow.onTestReminders = { [weak self] in self?.reminders.fireAllForTesting() }
         settingsWindow.onRunDailyTasks = { [weak self] in self?.runDailyTasks() }
+        settingsWindow.onCheckWeather = { [weak self] report in self?.weather.check(force: true, report: report) }
 
         settings.$petScale.dropFirst().removeDuplicates().sink { [weak self] in self?.pet.scale = CGFloat($0) }.store(in: &subscriptions)
         settings.$alwaysOnTop.dropFirst().sink { [weak self] in self?.pet.setLevel(alwaysOnTop: $0) }.store(in: &subscriptions)

@@ -267,6 +267,69 @@ do {
     check(!Weather.describe(0).isEmpty && Weather.describe(63) != Weather.describe(-1), "WMO weather codes")
 }
 
+// MARK: Memory bank and weather alerts
+
+do {
+    check(MemoryText.isDuplicate("主人对花生过敏", "主人对花生过敏。"), "Memory duplicate: punctuation")
+    check(MemoryText.isDuplicate("主人 11 月 20 日答辩", "主人11月20日要答辩"), "Memory duplicate: rewording")
+    check(!MemoryText.isDuplicate("主人对花生过敏", "主人喜欢喝美式咖啡"), "Different memories kept apart")
+    check(!MemoryText.isDuplicate("主人养了一只猫", "主人养了一只狗"), "Similar wording, different fact")
+    let r = PetReply.parse(#"{"reply":"记住啦","motion":"nod","remind":null,"weather_city":null,"remember":"主人对花生过敏","forget":null}"#)
+    check(r.remember == "主人对花生过敏" && r.forget == nil, "PetReply remember")
+    let f = PetReply.parse(#"{"reply":"好","motion":"nod","remind":null,"weather_city":null,"remember":" ","forget":"花生"}"#)
+    check(f.remember == nil && f.forget == "花生", "PetReply forget, blank remember ignored")
+
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+    let noon = cal.date(from: DateComponents(year: 2026, month: 10, day: 14, hour: 12))!
+    func hour(_ h: Double, code: Int = 3, p: Double = 10, wind: Double = 10) -> WeatherSnapshot.Hour {
+        .init(time: noon.addingTimeInterval(h * 3600), code: code, temperature: 20, precipitationProbability: p, precipitation: 0, windSpeed: wind)
+    }
+    var snap = WeatherSnapshot(place: "杭州", currentCode: 2, currentPrecipitation: 0,
+                               hours: [hour(1), hour(2, code: 61, p: 70), hour(3, code: 63, p: 80)],
+                               todayMax: 24, tomorrowMax: 16, tomorrowMin: 11, tomorrowCode: 61, tomorrowPrecipitationProbability: 80)
+    var state = WeatherAlertState()
+    var alerts = WeatherAlerts.evaluate(snap, now: noon, state: &state, calendar: cal)
+    check(alerts == [.precipitationSoon(minutes: 120, probability: 70, snow: false)], "Rain in two hours announced (\(alerts))")
+    alerts = WeatherAlerts.evaluate(snap, now: noon.addingTimeInterval(1200), state: &state, calendar: cal)
+    check(alerts.isEmpty, "Rain alert not repeated within six hours")
+
+    snap.currentCode = 61
+    var wet = WeatherAlertState()
+    check(WeatherAlerts.evaluate(snap, now: noon, state: &wet, calendar: cal).isEmpty, "No rain alert while it already rains")
+
+    snap.hours = [hour(4, code: 95, p: 80)]
+    var storm = WeatherAlertState()
+    alerts = WeatherAlerts.evaluate(snap, now: noon, state: &storm, calendar: cal)
+    check(alerts.contains { if case .severe(_, let d) = $0 { return d == WeatherAlerts.severeDescription(95) }; return false }, "Thunderstorm announced")
+    snap.hours = [hour(2, wind: 60)]
+    var windy = WeatherAlertState()
+    check(WeatherAlerts.evaluate(snap, now: noon, state: &windy, calendar: cal).contains { if case .severe = $0 { return true }; return false }, "Strong wind announced")
+
+    let evening = noon.addingTimeInterval(7 * 3600)  // 19:00
+    snap.hours = []
+    var tomorrow = WeatherAlertState()
+    alerts = WeatherAlerts.evaluate(snap, now: evening, state: &tomorrow, calendar: cal)
+    check(alerts == [.tomorrow(temperatureChange: -8, rainProbability: 80)], "Evening: colder and rainy tomorrow (\(alerts))")
+    check(WeatherAlerts.evaluate(snap, now: evening.addingTimeInterval(1800), state: &tomorrow, calendar: cal).isEmpty, "Tomorrow alert once per day")
+    var morning = WeatherAlertState()
+    check(WeatherAlerts.evaluate(snap, now: noon, state: &morning, calendar: cal).isEmpty, "No tomorrow alert before 17:00")
+    check(WeatherAlerts.message(.tomorrow(temperatureChange: -8, rainProbability: nil), place: "杭州").text.contains("8"), "Alert text")
+
+    let memFile = FileManager.default.temporaryDirectory.appendingPathComponent("memories-\(UUID().uuidString).json")
+    let store = MemoryStore(file: memFile)
+    check(store.add("主人对花生过敏") && store.add("主人养了一只猫"), "Memories added")
+    check(!store.add("主人对花生过敏。"), "Exact duplicate not stored again")
+    check(store.add("主人对花生严重过敏") && store.items.count == 2 && store.items.contains { $0.text == "主人对花生严重过敏" },
+          "Near-duplicate replaces older wording")
+    check(MemoryStore(file: memFile).items.count == 2, "Memories persisted to disk")
+    check(store.promptSection.contains("主人养了一只猫") && store.promptSection.contains("记忆库"), "Memories in prompt section")
+    check(store.forget("花生") == 1 && store.items.map(\.text) == ["主人养了一只猫"], "Forget by keyword")
+    store.removeAll()
+    check(store.promptSection.isEmpty && MemoryStore(file: memFile).items.isEmpty, "Clear all memories")
+    try? FileManager.default.removeItem(at: memFile)
+}
+
 // MARK: News / quotes / web page helpers
 
 do {

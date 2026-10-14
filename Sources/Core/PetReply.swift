@@ -19,6 +19,10 @@ struct PetReply: Codable, Equatable {
     var remind: RemindRequest?
     /// A city whose weather the pet wants before answering (not in its context yet).
     var weatherCity: String?
+    /// Something worth keeping in the memory bank (one short sentence about the owner), or nil.
+    var remember: String?
+    /// A keyword: memories containing it are to be forgotten, or nil.
+    var forget: String?
 
     /// JSON Schema for structured outputs. Every object sets `additionalProperties: false`,
     /// and numerical constraints are omitted because structured outputs do not support them.
@@ -26,7 +30,7 @@ struct PetReply: Codable, Equatable {
         [
             "type": "object",
             "additionalProperties": false,
-            "required": ["reply", "motion", "remind", "weather_city"],
+            "required": ["reply", "motion", "remind", "weather_city", "remember", "forget"],
             "properties": [
                 "reply": ["type": "string", "description": "What the pet says, at most about 60 characters."],
                 "motion": ["type": "string", "enum": .array(PetMotion.allCases.map { .string($0.rawValue) })],
@@ -48,6 +52,14 @@ struct PetReply: Codable, Equatable {
                     "anyOf": [["type": "null"], ["type": "string"]],
                     "description": "City to look up the weather for before answering; null otherwise.",
                 ],
+                "remember": [
+                    "anyOf": [["type": "null"], ["type": "string"]],
+                    "description": "A new long-term fact about the owner, as one short sentence; null otherwise.",
+                ],
+                "forget": [
+                    "anyOf": [["type": "null"], ["type": "string"]],
+                    "description": "Keyword of memories the owner asked to forget; null otherwise.",
+                ],
             ],
         ]
     }
@@ -63,8 +75,12 @@ struct PetReply: Codable, Equatable {
             if let r = json["remind"], let minutes = r["minutes"]?.int, minutes > 0, let note = r["text"]?.string {
                 remind = RemindRequest(minutes: minutes, text: note)
             }
-            let city = json["weather_city"]?.string?.trimmingCharacters(in: .whitespaces)
-            return PetReply(reply: reply, motion: motion, remind: remind, weatherCity: city?.isEmpty == false ? city : nil)
+            func text(_ key: String) -> String? {
+                let value = json[key]?.string?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return value?.isEmpty == false ? value : nil
+            }
+            return PetReply(reply: reply, motion: motion, remind: remind, weatherCity: text("weather_city"),
+                            remember: text("remember"), forget: text("forget"))
         }
         return PetReply(reply: text.isEmpty ? "……" : text, motion: .idle, remind: nil)
     }

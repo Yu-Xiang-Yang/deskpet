@@ -373,6 +373,54 @@ enum Weather {
         return lines.joined(separator: "\n")
     }
 
+    /// Structured forecast for weather alerts: current conditions, the next 12 hours and today/tomorrow.
+    static func snapshot(location: String) async throws -> WeatherSnapshot? {
+        guard let place = try await cachedPlace(location) else { return nil }
+        var c = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
+        c.queryItems = [
+            URLQueryItem(name: "latitude", value: String(place.latitude)),
+            URLQueryItem(name: "longitude", value: String(place.longitude)),
+            URLQueryItem(name: "current", value: "weather_code,precipitation"),
+            URLQueryItem(name: "hourly", value: "weather_code,temperature_2m,precipitation_probability,precipitation,wind_speed_10m"),
+            URLQueryItem(name: "daily", value: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"),
+            URLQueryItem(name: "timezone", value: "auto"),
+            URLQueryItem(name: "timeformat", value: "unixtime"),
+            URLQueryItem(name: "forecast_days", value: "2"),
+            URLQueryItem(name: "forecast_hours", value: "12"),
+        ]
+        let json = try JSON.parse(try await ResearchTools.get(c.url!))
+        let h = json["hourly"]
+        let times = h?["time"]?.array ?? []
+        let hours = times.indices.compactMap { i -> WeatherSnapshot.Hour? in
+            guard let t = times[i].double else { return nil }
+            return WeatherSnapshot.Hour(time: Date(timeIntervalSince1970: t), code: h?["weather_code"]?[i]?.int ?? -1,
+                                        temperature: h?["temperature_2m"]?[i]?.double ?? 0,
+                                        precipitationProbability: h?["precipitation_probability"]?[i]?.double ?? 0,
+                                        precipitation: h?["precipitation"]?[i]?.double ?? 0,
+                                        windSpeed: h?["wind_speed_10m"]?[i]?.double ?? 0)
+        }
+        let d = json["daily"]
+        return WeatherSnapshot(place: place.name, currentCode: json["current"]?["weather_code"]?.int ?? -1,
+                               currentPrecipitation: json["current"]?["precipitation"]?.double ?? 0, hours: hours,
+                               todayMax: d?["temperature_2m_max"]?[0]?.double, tomorrowMax: d?["temperature_2m_max"]?[1]?.double,
+                               tomorrowMin: d?["temperature_2m_min"]?[1]?.double, tomorrowCode: d?["weather_code"]?[1]?.int,
+                               tomorrowPrecipitationProbability: d?["precipitation_probability_max"]?[1]?.double)
+    }
+
+    /// Geocoding result cached for a day (the place does not move).
+    private static func cachedPlace(_ location: String) async throws -> Place? {
+        let key = "geo:" + location
+        if let cached = await ToolCache.shared.get(key, maxAge: 86_400), let data = cached.data(using: .utf8),
+           let p = try? JSON.parse(data), let lat = p["lat"]?.double, let lon = p["lon"]?.double {
+            return Place(name: p["name"]?.string ?? location, region: p["region"]?.string ?? "", latitude: lat, longitude: lon)
+        }
+        guard let place = try await geocode(location) else { return nil }
+        let entry: JSON = ["name": .string(place.name), "region": .string(place.region),
+                           "lat": .number(place.latitude), "lon": .number(place.longitude)]
+        await ToolCache.shared.set(key, entry.compactString)
+        return place
+    }
+
     /// One line for the pet's context, cached for 30 minutes per place.
     static func brief(_ city: String) async -> String? {
         if let cached = await ToolCache.shared.get("weather-brief:" + city, maxAge: 1800) { return cached }
@@ -410,7 +458,7 @@ actor ToolCache {
     }
 
     func set(_ key: String, _ value: String) {
-        if results.count > 200 { results = results.filter { Date().timeIntervalSince($0.value.date) < 1800 } }
+        if results.count > 200 { results = results.filter { Date().timeIntervalSince($0.value.date) < 86_400 } }
         results[key] = (Date(), value)
     }
 

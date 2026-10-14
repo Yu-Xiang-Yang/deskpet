@@ -13,13 +13,15 @@ This repository contains only DeskPet's own source code, released under the MIT 
 | Character | Live2D models (Cubism 3/4 runtime format, rendered with PixiJS on WebGL), selected under Settings → General → Character; Tororo is preferred by default; a bubble reports a missing model or Cubism Core |
 | Interaction | Dragging, with the position remembered; clicks on transparent pixels pass through to the window below; a click on the head pets the character and a click on the body opens the chat box; a global shortcut (⌥Space by default, configurable or off) shows or hides the chat box; context menu |
 | Speech bubbles | User messages and replies stack above the head, at most three at a time: the newest sits at the bottom, older ones move up and fade, and each disappears on its own timer (research answers stay 10–30 s depending on length and can be closed with the × button); the timer pauses while the pointer rests on a bubble and restarts when it leaves; when the window overhangs a screen edge, bubbles and the chat box are kept on screen |
-| Conversation | The model answers with structured JSON fields `reply`, `motion`, `remind` and `weather_city`: `motion` drives one of 11 semantic motions, `remind` creates a one-off reminder, and `weather_city` asks for another city's weather before the final answer |
+| Conversation | The model answers with structured JSON fields `reply`, `motion`, `remind`, `weather_city`, `remember` and `forget`: `motion` drives one of 11 semantic motions, `remind` creates a one-off reminder, `weather_city` asks for another city's weather before the final answer, and `remember` / `forget` add or delete memory-bank entries |
 | Dancing to music | Audio output of other applications is detected through Core Audio process objects (no permission needed; output lasting 1.5 s or longer counts as playing); by default a system-audio tap (Core Audio process tap, requires the "System Audio Recording" permission) detects beats from the energy below about 150 Hz, the tempo is estimated from the median beat interval, and the character sways from side to side at half tempo with its head raised; without the permission, or with "Follow the real beat" off, it sways at about 112 BPM; the character does not fall asleep while music plays |
 | Proactive behaviour | Small talk at a configurable interval (a mix of local phrases and model-written remarks); hopping to another place at the "Wandering" interval; random idle motions such as grooming and scratching an ear; sleep after five minutes without user input |
 | Reminders | Meals, start and end of work (optionally weekdays only), standing up, drinking water, a 25-minute focus timer; shown as a bubble with a motion and as a system notification with a "Remind me in 10 min" action |
 | Research mode | A state of the character, toggled from the context menu or the menu bar; while it is on, the chat box asks the research assistant and both question and answer appear as bubbles: answers render Markdown and KaTeX, scroll, and open the full conversation when clicked; the character does not wander |
 | Message list | A separate menu bar item and the context menu entry "Messages" list the 12 most recent conversations; the full window offers the conversation list, search, renaming, deletion and follow-up questions |
 | Daily tasks | On the first launch or first activity of each day, the tasks under Settings → Daily tasks (one per line) run in order; results appear as bubbles and are saved as "Daily brief · date"; search tools are always enabled for these tasks |
+| Memory bank | Lasting facts from conversations (preferences, allergies, important dates, long-term plans) are stored automatically through the `remember` field, confirmed by a "📝 Noted" bubble; asking the pet to forget something removes matching entries (`forget`, by keyword). Entries can be viewed, added and deleted under Settings → Memory, and are appended to the system prompts of chat, research and daily tasks, newest first (up to 2400 characters). Deduplication: an entry that is equal after normalisation, contained in another, or differs only by a few inserted characters (the shorter text appears in order within the longer one, length ratio ≥ 0.7) replaces the older wording; a substituted word counts as a different fact |
+| Weather alerts | For the city under About me, the Open-Meteo hourly forecast is fetched every 20 minutes and compared with the current weather: dry now with precipitation probability ≥ 60% (or a precipitation code with ≥ 40%) within 3 hours triggers an umbrella reminder; thunderstorms, heavy rain, heavy snow or wind ≥ 45 km/h within 6 hours trigger a warning (each at most once per 6 hours); after 17:00, a change of tomorrow's maximum temperature by ≥ 6 °C or a precipitation probability ≥ 70% tomorrow is announced once a day. Alerts appear as a bubble with a motion and a system notification, and can be turned off or checked on demand under Settings → Reminders |
 | About the owner | The city under Settings → About me (the chat context includes the local weather, cached for 30 minutes) and free-form background text, both appended to the system prompts of chat, research and daily tasks |
 | Search tools | Claude can also use its server-side `web_search`; both providers can call the client tools `search_arxiv`, `search_semantic_scholar`, `search_news`, `get_stock_quotes`, `get_weather` and `fetch_webpage` (see section 6) |
 
@@ -96,8 +98,9 @@ Works that use the Live2D sample models must state: This content uses sample dat
 | Data | Location |
 | --- | --- |
 | Conversations | `~/Library/Application Support/DeskPet/conversations/*.json` |
+| Memory bank | `~/Library/Application Support/DeskPet/memories.json` |
 | Live2D models and Cubism Core | `~/Library/Application Support/DeskPet/models/` |
-| Settings, window position, reminder state | UserDefaults (domain `local.deskpet`) |
+| Settings, window position, reminder and weather alert state | UserDefaults (domain `local.deskpet`) |
 | API keys | Keychain (service `local.deskpet`) |
 
 The application contacts only the selected model provider's API, `export.arxiv.org`, `api.semanticscholar.org`, `www.bing.com`, `news.google.com`, `query1.finance.yahoo.com`, `api.open-meteo.com` and `geocoding-api.open-meteo.com`, plus public web pages that the model requests through `fetch_webpage`. System audio is analysed on the device in real time for beats only; it is not recorded, stored or uploaded. The environment variable `DESKPET_DIR` overrides the data directory and switches to test Keychain items, for testing.
@@ -108,9 +111,9 @@ The application contacts only the selected model provider's API, `export.arxiv.o
 DeskPet/
 ├── build.sh                  Build and install script (swiftc, no Xcode project)
 ├── Sources/
-│   ├── Core/                 UI-independent logic: JSON, SSE parsing, reply parsing, reminder rules, localization
+│   ├── Core/                 UI-independent logic: JSON, SSE parsing, reply parsing, reminder and weather alert rules, memory deduplication, localization
 │   ├── LLM/                  LLMProvider protocol, Anthropic and OpenAI-compatible providers, search tools, weather
-│   └── App/                  AppKit/SwiftUI: pet window, chat box, message list, research engine, settings, reminders, music
+│   └── App/                  AppKit/SwiftUI: pet window, chat box, message list, research engine, settings, reminders, memory bank, weather alerts, music
 ├── Resources/
 │   ├── web/                  pet.html/js/css (character, bubbles), research.html/js/css (message list), md.js (Markdown, formulas)
 │   ├── model-maps/           Motion maps for the sample models Tororo and Hijiki
@@ -129,7 +132,7 @@ scripts/selftest.sh
 scripts/integration-test.sh
 ```
 
-- `selftest.sh` compiles `Sources/Core`, `Sources/LLM` and `Tests/main.swift` and runs 66 checks covering SSE parsing, both stream accumulators (including hiding and parsing tool-call markup in the text), content-block cleanup after a server-side fallback, request bodies, pet reply parsing, reminder rules, and the helpers of the news, quote, web page and weather tools.
+- `selftest.sh` compiles `Sources/Core`, `Sources/LLM`, `Sources/App/MemoryStore.swift` and `Tests/main.swift` and runs 88 checks covering SSE parsing, both stream accumulators (including hiding and parsing tool-call markup in the text), content-block cleanup after a server-side fallback, request bodies, pet reply parsing (including the memory fields), reminder rules, memory deduplication and persistence, weather alert rules, and the helpers of the news, quote, web page and weather tools.
 - `integration-test.sh` starts `Tests/mock_server.py` (which streams both API formats in 7-byte pieces) and verifies the tool loop, unchanged replay of thinking blocks, fallback headers, HTTP error messages and JSON mode over real HTTP streams; the search tools call the live arXiv, Semantic Scholar, news, quote and weather services (network required).
 
 ## 10. License and credits

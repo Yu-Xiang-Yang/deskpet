@@ -6,6 +6,7 @@ final class SettingsWindowController {
     var onModelChange: (() -> Void)?
     var onTestReminders: (() -> Void)?
     var onRunDailyTasks: (() -> Void)?
+    var onCheckWeather: ((@escaping (String) -> Void) -> Void)?
 
     func show(tab: SettingsView.Tab = .general) {
         if window == nil {
@@ -13,7 +14,8 @@ final class SettingsWindowController {
                 initialTab: tab,
                 onModelChange: { [weak self] in self?.onModelChange?() },
                 onTestReminders: { [weak self] in self?.onTestReminders?() },
-                onRunDailyTasks: { [weak self] in self?.onRunDailyTasks?() }))
+                onRunDailyTasks: { [weak self] in self?.onRunDailyTasks?() },
+                onCheckWeather: { [weak self] report in self?.onCheckWeather?(report) }))
             let w = NSWindow(contentViewController: hosting)
             w.title = tr("桌宠设置", "DeskPet Settings")
             w.styleMask = [.titled, .closable, .miniaturizable]
@@ -27,13 +29,19 @@ final class SettingsWindowController {
 }
 
 struct SettingsView: View {
-    enum Tab: Hashable { case general, owner, model, reminders, daily }
+    enum Tab: Hashable { case general, owner, memory, model, reminders, daily }
 
     @ObservedObject private var settings = AppSettings.shared
     @State var initialTab: Tab
     var onModelChange: () -> Void
     var onTestReminders: () -> Void
     var onRunDailyTasks: () -> Void
+    var onCheckWeather: (@escaping (String) -> Void) -> Void
+
+    @ObservedObject private var memory = MemoryStore.shared
+    @State private var newMemory = ""
+    @State private var confirmClear = false
+    @State private var weatherResult = ""
 
     @State private var anthropicKey = Keychain.hasValue(account: "anthropic") ? (Keychain.read(account: "anthropic") ?? "") : ""
     @State private var openaiKey = Keychain.hasValue(account: "openai") ? (Keychain.read(account: "openai") ?? "") : ""
@@ -60,6 +68,7 @@ struct SettingsView: View {
             model.tabItem { Label(tr("模型", "Model"), systemImage: "brain") }.tag(Tab.model)
             reminders.tabItem { Label(tr("提醒", "Reminders"), systemImage: "alarm") }.tag(Tab.reminders)
             daily.tabItem { Label(tr("每日任务", "Daily tasks"), systemImage: "sun.max") }.tag(Tab.daily)
+            memoryTab.tabItem { Label(tr("记忆库", "Memory"), systemImage: "brain.head.profile") }.tag(Tab.memory)
         }
         .padding(16)
         .frame(width: 560, height: 520)
@@ -208,6 +217,55 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
+    // MARK: Memory
+
+    private var memoryTab: some View {
+        Form {
+            Section {
+                Toggle(tr("从对话中自动记住重要信息", "Remember important things from conversations"), isOn: $settings.autoMemory)
+                HStack {
+                    TextField(tr("手动添加一条记忆，如：主人对花生过敏", "Add a memory, e.g. I am allergic to peanuts"), text: $newMemory)
+                        .onSubmit(addMemory)
+                    Button(tr("添加", "Add"), action: addMemory).disabled(newMemory.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            } footer: {
+                Text(tr("记忆保存在本机，并作为背景随每次请求发送给所选的模型服务。对桌宠说“忘掉……”也可删除相关记忆。",
+                        "Memories stay on this Mac and are sent as background with each request to the selected model provider. Saying “forget …” to the pet removes matching memories."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section(tr("共 \(memory.items.count) 条", "\(memory.items.count) memories")) {
+                if memory.items.isEmpty {
+                    Text(tr("还没有记忆。", "No memories yet.")).foregroundStyle(.secondary)
+                }
+                ForEach(memory.items) { m in
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(m.text).font(.system(size: 12.5)).textSelection(.enabled)
+                            Text(ReminderRules.dayStamp(m.created, .current) + (m.source == "manual" ? tr(" · 手动添加", " · added manually") : ""))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button { memory.remove(m.id) } label: { Image(systemName: "trash") }
+                            .buttonStyle(.borderless)
+                            .help(tr("删除", "Delete"))
+                    }
+                }
+                if !memory.items.isEmpty {
+                    Button(tr("清空全部记忆…", "Clear all memories…"), role: .destructive) { confirmClear = true }
+                        .confirmationDialog(tr("确定清空全部 \(memory.items.count) 条记忆？此操作无法撤销。", "Clear all \(memory.items.count) memories? This cannot be undone."),
+                                            isPresented: $confirmClear) {
+                            Button(tr("清空", "Clear"), role: .destructive) { memory.removeAll() }
+                        }
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func addMemory() {
+        if memory.add(newMemory, source: "manual") { newMemory = "" }
+    }
+
     // MARK: Model
 
     private var model: some View {
@@ -312,6 +370,17 @@ struct SettingsView: View {
             }
             Section {
                 Button(tr("测试全部提醒", "Test all reminders"), action: onTestReminders)
+            }
+            Section {
+                Toggle(tr("天气变化提醒", "Weather change alerts"), isOn: $settings.weatherAlerts)
+                HStack {
+                    Button(tr("立即检查一次", "Check now")) { weatherResult = ""; onCheckWeather { weatherResult = $0 } }
+                    Text(weatherResult).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            } footer: {
+                Text(tr("每 20 分钟检查一次“主人信息”中所在城市的预报：未来 3 小时可能下雨或下雪、未来 6 小时有雷暴、大雨、大雪或大风、傍晚时明天明显降温或升温或有雨时提醒；同类提醒有冷却时间。",
+                        "Every 20 minutes the forecast for your city is checked: rain or snow within 3 hours; thunderstorms, heavy rain or snow, or strong wind within 6 hours; and in the evening a much colder, warmer or rainy tomorrow. Each kind of alert has a cool-down."))
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

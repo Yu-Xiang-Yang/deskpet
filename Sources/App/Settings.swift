@@ -61,6 +61,10 @@ final class AppSettings: ObservableObject {
     var characterLook: String? { selectedModel?.map?["look"]?.string }
     @Published var petScale: Double { didSet { defaults.set(petScale, forKey: "petScale") } }
     @Published var alwaysOnTop: Bool { didSet { defaults.set(alwaysOnTop, forKey: "alwaysOnTop") } }
+    /// Store important facts from conversations in the memory bank automatically.
+    @Published var autoMemory: Bool { didSet { defaults.set(autoMemory, forKey: "autoMemory") } }
+    /// Announce weather changes for the owner's city.
+    @Published var weatherAlerts: Bool { didSet { defaults.set(weatherAlerts, forKey: "weatherAlerts") } }
     /// Sway to music played by other apps, and whether to follow the real beat (system-audio tap).
     @Published var danceToMusic: Bool { didSet { defaults.set(danceToMusic, forKey: "danceToMusic") } }
     @Published var followBeat: Bool { didSet { defaults.set(followBeat, forKey: "followBeat") } }
@@ -93,6 +97,8 @@ final class AppSettings: ObservableObject {
             "hotKey": HotKeyPreset.optionSpace.rawValue,
             "wander": WanderLevel.medium.rawValue,
             "danceToMusic": true,
+            "autoMemory": true,
+            "weatherAlerts": true,
             "followBeat": true,
         ])
         provider = ProviderKind(rawValue: defaults.string(forKey: "provider") ?? "") ?? .anthropic
@@ -120,6 +126,8 @@ final class AppSettings: ObservableObject {
         hotKey = HotKeyPreset(rawValue: defaults.string(forKey: "hotKey") ?? "") ?? .optionSpace
         wander = WanderLevel(rawValue: defaults.string(forKey: "wander") ?? "") ?? .medium
         danceToMusic = defaults.bool(forKey: "danceToMusic")
+        autoMemory = defaults.bool(forKey: "autoMemory")
+        weatherAlerts = defaults.bool(forKey: "weatherAlerts")
         followBeat = defaults.bool(forKey: "followBeat")
     }
 

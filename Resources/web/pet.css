@@ -190,6 +190,7 @@ html, body {
 .bubble.leaving.fast { animation-duration: 0.26s; }
 .bubble.reminder { --bubble-border: #ffb703; --bubble-bg: #fffaf0; }
 .bubble.reminder::before { content: "⏰ "; }
+.bubble.memory { --bubble-border: #b9a8f0; color: #6a5aa0; font-size: 12px; }
 .bubble.error { --bubble-border: #ff6b6b; color: #8a1f1f; }
 .bubble.status { --bubble-border: #b9a8f0; color: #6a5aa0; font-size: 12px; }
 .bubble.status .dots::after { content: ""; animation: ellipsis 1.2s steps(4) infinite; }

@@ -32,8 +32,8 @@ final class ResearchEngine {
 
     /// The research prompt plus the owner's background (stable until the profile is edited).
     var systemPrompt: String {
-        let owner = settings.ownerSection
-        return Self.basePrompt + (owner.isEmpty ? "" : owner + "\n回答时结合主人的背景调整深度与侧重点。")
+        let owner = settings.ownerSection + MemoryStore.shared.promptSection
+        return Self.basePrompt + (owner.isEmpty ? "" : owner + "\n回答时结合主人的背景与记忆调整深度与侧重点。")
     }
 
     static let basePrompt = """

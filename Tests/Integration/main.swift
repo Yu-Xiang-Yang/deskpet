@@ -118,6 +118,8 @@ Task {
     let weather = await ResearchTools.run(ToolCall(id: "wx", name: "get_weather", input: ["location": "杭州", "days": 2]))
     check(!weather.isError && weather.content.contains("°C") && weather.content.split(separator: "\n").count >= 3,
           "Live weather: \(weather.content.prefix(70))")
+    let snapshot = try? await Weather.snapshot(location: "杭州")
+    check((snapshot?.hours.count ?? 0) >= 6 && snapshot?.tomorrowMax != nil, "Live forecast snapshot: \(snapshot?.hours.count ?? 0) hours")
     let brief = await Weather.brief("Beijing")
     check(brief?.contains("°C") == true && brief?.contains("\n") == false, "Weather brief is one line: \(brief?.prefix(60) ?? "nil")")
     let local = await ResearchTools.run(ToolCall(id: "w", name: "fetch_webpage", input: ["url": "http://127.0.0.1:8799/"]))

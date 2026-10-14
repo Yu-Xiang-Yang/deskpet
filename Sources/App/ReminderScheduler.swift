@@ -70,6 +70,12 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
 
     // MARK: Delivery
 
+    /// Delivers a one-off announcement (e.g. a weather change) like a reminder: pet bubble and notification.
+    func announce(_ text: String, motion: PetMotion) {
+        deliver(text, motion)
+        notify(text)
+    }
+
     private func fire(_ kind: ReminderKind) {
         let (text, motion) = Self.content(kind)
         deliver(text, motion)
