@@ -43,6 +43,72 @@ final class Mischief {
         CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
     }
 
+    // MARK: Music
+    // While music plays the pet dances rather than pranks; these small jokes fit into the dance.
+
+    /// Whether the pet may joke during music (visible, not in research mode, chat box closed, owner around).
+    var canJoke: () -> Bool = { false }
+    /// Start of the current listening session; gaps of a few seconds between songs do not end it.
+    private var musicSince: Date?
+    private var nextSing = Date.distantFuture
+    private var nextJump = Date.distantFuture
+    private var lastEncore = Date.distantPast
+    private var sessionEnd: DispatchWorkItem?
+
+    func musicChanged(_ playing: Bool) {
+        sessionEnd?.cancel()
+        if playing {
+            interrupt()  // the music comes first
+            if musicSince == nil {
+                musicSince = Date()
+                nextSing = Date().addingTimeInterval(.random(in: 90...240))
+                nextJump = Date().addingTimeInterval(.random(in: 60...180))
+            }
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in self?.musicSessionEnded() }
+        sessionEnd = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: work)
+    }
+
+    /// Each beat: now and then sing along (every 4–8 min, not while the owner types) or jump on a
+    /// strong beat (every 3–6 min; any beat once a minute has passed without a strong one).
+    func musicBeat(_ strength: Double) {
+        guard settings.mischief, musicSince != nil else { return }
+        let now = Date()
+        if now >= nextSing {
+            nextSing = now.addingTimeInterval(.random(in: 240...480))
+            if canJoke(), Self.keyboardIdleSeconds >= 10 {
+                pet.say([tr("♪～啦啦啦～♪", "♪~la la la~♪"),
+                         tr("♪ 嗯嗯～哼哼哼～ ♪", "♪ mm-mm~ hmm hmm hmm~ ♪"),
+                         tr("（跟着唱）♪～", "(singing along) ♪~"),
+                         tr("这段我会唱！♪～", "I know this part! ♪~")].randomElement()!, ms: 5000)
+            }
+        }
+        if now >= nextJump, strength >= 0.85 || now.timeIntervalSince(nextJump) > 60 {
+            nextJump = now.addingTimeInterval(.random(in: 180...360))
+            if canJoke() {
+                pet.bounce()
+                if Bool.random() { pet.say(tr("嗨～！", "Woo~!"), ms: 2500) }
+            }
+        }
+    }
+
+    /// Eight seconds of silence after at least two minutes of music: the pet asks for more (at most every 20 min).
+    private func musicSessionEnded() {
+        guard let since = musicSince else { return }
+        musicSince = nil
+        guard settings.mischief, Date().timeIntervalSince(since) >= 120,
+              Date().timeIntervalSince(lastEncore) > 1200, canJoke() else { return }
+        lastEncore = Date()
+        pet.play(.sad)
+        pet.say([tr("再放一首嘛～", "One more song~"),
+                 tr("诶，怎么停了？我还没跳够呢！", "Huh, it stopped? I wasn't done dancing!"),
+                 tr("安可！安可！", "Encore! Encore!")].randomElement()!)
+    }
+
+    // MARK: Pranks timer
+
     /// Called every few seconds by the app.
     func tick() {
         let now = Date()
@@ -73,6 +139,9 @@ final class Mischief {
         case "sleep": startFakeSleep()
         case "peek": startPeek()
         case "sneak": sneakToPointer()
+        case "sing": musicSince = musicSince ?? Date(); nextSing = .distantPast; musicBeat(0.5)
+        case "jump": musicSince = musicSince ?? Date(); nextJump = .distantPast; musicBeat(1)
+        case "encore": musicSince = Date().addingTimeInterval(-300); lastEncore = .distantPast; musicSessionEnded()
         default: break
         }
     }

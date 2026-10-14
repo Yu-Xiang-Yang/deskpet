@@ -328,6 +328,13 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
         hop(remaining: count, step: distance / CGFloat(count), baseY: start.y, completion: completion)
     }
 
+    /// A single jump on the spot (from excitement).
+    func bounce() {
+        guard !hopping, !dragging, ready else { return }
+        hopping = true
+        hop(remaining: 1, step: 0, baseY: panel.frame.origin.y, completion: nil)
+    }
+
     /// One hop: crouch, fly along a parabola, land with a squash, then the next hop.
     private func hop(remaining: Int, step: CGFloat, baseY: CGFloat, completion: (() -> Void)?) {
         guard remaining > 0, hopping else {
@@ -341,7 +348,7 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
             guard let self, self.hopping else { return }
             self.webView.call("pet.hop", "air")
             let from = self.panel.frame.origin.x
-            let height = (34 + abs(step) * 0.22) * max(self.scale, 0.5)
+            let height = (step == 0 ? 46 : 34 + abs(step) * 0.22) * max(self.scale, 0.5)
             let duration = 0.36 + Double(abs(step)) / 900
             let begin = CACurrentMediaTime()
             let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] t in

@@ -67,7 +67,10 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }.store(in: &subscriptions)
 
         music.onPlayingChange = { [weak self] playing in self?.musicChanged(playing) }
-        music.onBeat = { [weak self] strength in self?.pet.beat(strength) }
+        music.onBeat = { [weak self] strength in
+            self?.pet.beat(strength)
+            self?.mischief.musicBeat(strength)
+        }
         settings.$followBeat.removeDuplicates().sink { [weak self] in self?.music.followBeat = $0 }.store(in: &subscriptions)
         settings.$danceToMusic.removeDuplicates().sink { [weak self] on in
             guard let self else { return }
@@ -77,6 +80,11 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         settings.$wander.removeDuplicates().sink { [weak self] level in self?.scheduleWander(level) }.store(in: &subscriptions)
         mischief.canAct = { [weak self] in self?.mayActOnItsOwn ?? false }
         mischief.reallyAsleep = { [weak self] in self?.brain.sleeping ?? false }
+        mischief.canJoke = { [weak self] in
+            guard let self else { return false }
+            return self.pet.panel.isVisible && !self.researchMode && !self.chatPanel.isVisible && !self.brain.sleeping
+                && !self.pet.dragging && PetBrain.idleSeconds < 120
+        }
         let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.wanderIfDue()
@@ -397,6 +405,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private func musicChanged(_ playing: Bool) {
         brain.musicPlaying = playing
         pet.setGrooving(playing)
+        mischief.musicChanged(playing)
         // Now and then a word about the music (at most every 10 minutes).
         if playing, Date().timeIntervalSince(lastMusicRemark) > 600, Double.random(in: 0...1) < 0.4 {
             lastMusicRemark = Date()
