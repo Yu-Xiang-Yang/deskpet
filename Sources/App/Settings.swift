@@ -60,7 +60,8 @@ final class AppSettings: ObservableObject {
     /// Appearance described to the model, from "look" in the model's pet-map.json.
     var characterLook: String? { selectedModel?.map?["look"]?.string }
     @Published var petScale: Double { didSet { defaults.set(petScale, forKey: "petScale") } }
-    @Published var alwaysOnTop: Bool { didSet { defaults.set(alwaysOnTop, forKey: "alwaysOnTop") } }
+    /// Window layer of the pet: above all windows, among them, or on the desktop only.
+    @Published var petLayer: PetLayer { didSet { defaults.set(petLayer.rawValue, forKey: "petLayer") } }
     /// Store important facts from conversations in the memory bank automatically.
     @Published var autoMemory: Bool { didSet { defaults.set(autoMemory, forKey: "autoMemory") } }
     /// Announce weather changes for the owner's city.
@@ -122,7 +123,9 @@ final class AppSettings: ObservableObject {
         let storedModel = defaults.string(forKey: "modelID") ?? ""
         modelID = storedModel.hasPrefix("builtin:") ? "" : storedModel  // built-in characters were removed
         petScale = defaults.double(forKey: "petScale")
-        alwaysOnTop = defaults.bool(forKey: "alwaysOnTop")
+        // Earlier builds stored a Boolean "alwaysOnTop".
+        petLayer = PetLayer(rawValue: defaults.string(forKey: "petLayer") ?? "")
+            ?? (defaults.bool(forKey: "alwaysOnTop") ? .top : .normal)
         hotKey = HotKeyPreset(rawValue: defaults.string(forKey: "hotKey") ?? "") ?? .optionSpace
         wander = WanderLevel(rawValue: defaults.string(forKey: "wander") ?? "") ?? .medium
         danceToMusic = defaults.bool(forKey: "danceToMusic")
@@ -141,6 +144,20 @@ final class AppSettings: ObservableObject {
     你是一只住在用户电脑桌面上的桌面宠物。性格元气、温柔、偶尔有一点小调皮，说话简短自然，\
     会关心用户的作息与情绪，但不说教。你同时是可靠的学习与科研伙伴。
     """
+}
+
+enum PetLayer: String, CaseIterable, Identifiable {
+    case top, normal, desktop
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .top: return tr("始终置顶", "Always on top")
+        case .normal: return tr("普通窗口（可被遮挡）", "Like a normal window")
+        case .desktop: return tr("仅在桌面（位于所有窗口之下）", "Desktop only (below all windows)")
+        }
+    }
 }
 
 enum WanderLevel: String, CaseIterable, Identifiable {

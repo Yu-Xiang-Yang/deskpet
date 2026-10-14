@@ -14,9 +14,6 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private let settingsWindow = SettingsWindowController()
     private let chatPanel = ChatInputPanel()
     private var statusItem: NSStatusItem?
-    /// The message list has its own menu bar item.
-    private var messagesItem: NSStatusItem?
-    private let messagesMenu = NSMenu()
 
     /// In research mode the chat box asks the research assistant; answers appear as the pet's bubbles.
     private var researchMode = false
@@ -33,10 +30,9 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMainMenu()
         buildStatusItem()
-        buildMessagesItem()
 
         pet.delegate = self
-        pet.setLevel(alwaysOnTop: settings.alwaysOnTop)
+        pet.setLayer(settings.petLayer)
         pet.show(model: settings.selectedModel, scale: settings.petScale)
 
         brain.onRemind = { [weak self] r in
@@ -61,7 +57,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         settingsWindow.onCheckWeather = { [weak self] report in self?.weather.check(force: true, report: report) }
 
         settings.$petScale.dropFirst().removeDuplicates().sink { [weak self] in self?.pet.scale = CGFloat($0) }.store(in: &subscriptions)
-        settings.$alwaysOnTop.dropFirst().sink { [weak self] in self?.pet.setLevel(alwaysOnTop: $0) }.store(in: &subscriptions)
+        settings.$petLayer.dropFirst().sink { [weak self] in self?.pet.setLayer($0) }.store(in: &subscriptions)
         settings.$hotKey.removeDuplicates().sink { [weak self] preset in
             if self?.hotKey.register(preset) == false { NSLog("Hot key %@ is not available", preset.title) }
         }.store(in: &subscriptions)
@@ -341,20 +337,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         research.show(conversationID: conversationID)
     }
 
-    private func buildMessagesItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "text.bubble", accessibilityDescription: tr("消息列表", "Messages"))
-        item.button?.toolTip = tr("消息列表", "Messages")
-        messagesMenu.delegate = self
-        item.menu = messagesMenu
-        messagesItem = item
-    }
-
     /// Recent conversations, newest first, plus the full list.
-    private func fillMessagesMenu() {
-        fillMessages(messagesMenu)
-    }
-
     private func fillMessages(_ messagesMenu: NSMenu) {
         messagesMenu.removeAllItems()
         let open = NSMenuItem(title: tr("打开消息列表…", "Open message list…"), action: #selector(openMessageList), keyEquivalent: "")
@@ -378,6 +361,10 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     @objc private func openSettings() { settingsWindow.show() }
     @objc private func openReminderSettings() { settingsWindow.show(tab: .reminders) }
     @objc private func togglePet() { setPetVisible(!pet.panel.isVisible) }
+
+    @objc private func selectLayer(_ sender: NSMenuItem) {
+        if let raw = sender.representedObject as? String, let layer = PetLayer(rawValue: raw) { settings.petLayer = layer }
+    }
     @objc private func quit() { NSApp.terminate(nil) }
 
     @objc private func toggleFocus() {
@@ -470,6 +457,17 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         item(tr("提醒设置…", "Reminders…"), #selector(openReminderSettings))
         item(tr("设置…", "Settings…"), #selector(openSettings), ",")
         menu.addItem(.separator())
+        let layer = NSMenuItem(title: tr("显示层级", "Window layer"), action: nil, keyEquivalent: "")
+        let layers = NSMenu()
+        for option in PetLayer.allCases {
+            let i = NSMenuItem(title: option.title, action: #selector(selectLayer(_:)), keyEquivalent: "")
+            i.target = self
+            i.representedObject = option.rawValue
+            i.state = settings.petLayer == option ? .on : .off
+            layers.addItem(i)
+        }
+        layer.submenu = layers
+        menu.addItem(layer)
         item(pet.panel.isVisible ? tr("隐藏桌宠", "Hide pet") : tr("显示桌宠", "Show pet"), #selector(togglePet))
         item(tr("退出", "Quit"), #selector(quit), "q")
     }
@@ -484,7 +482,6 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
-        if menu === messagesMenu { fillMessagesMenu(); return }
         menu.removeAllItems()
         addItems(to: menu)
     }
@@ -517,6 +514,21 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         windowMenu.addItem(withTitle: tr("最小化", "Minimize"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowItem.submenu = windowMenu
         NSApp.mainMenu = main
+    }
+}
+
+/// Earlier builds used the bundle identifier `local.deskpet`. Its settings are copied once into the
+/// current domain (keys already set are kept), and launch at login is registered again for the new identifier.
+enum LegacyDefaults {
+    static let domain = "local.deskpet"
+
+    static func migrate() {
+        let defaults = UserDefaults.standard
+        guard Bundle.main.bundleIdentifier != domain, !defaults.bool(forKey: "migratedLegacyDefaults") else { return }
+        defaults.set(true, forKey: "migratedLegacyDefaults")
+        guard let old = defaults.persistentDomain(forName: domain), !old.isEmpty else { return }
+        for (key, value) in old where defaults.object(forKey: key) == nil { defaults.set(value, forKey: key) }
+        if old["launchAtLogin"] as? Bool == true { _ = LoginItem.set(true) }
     }
 }
 

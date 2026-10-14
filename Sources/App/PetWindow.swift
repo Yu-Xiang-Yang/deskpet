@@ -115,8 +115,14 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
         reload()
     }
 
-    func setLevel(alwaysOnTop: Bool) {
-        panel.level = alwaysOnTop ? .floating : .normal
+    func setLayer(_ layer: PetLayer) {
+        switch layer {
+        case .top: panel.level = .floating
+        case .normal: panel.level = .normal
+        // Just above the desktop icons: covered by every app window, visible when the desktop is.
+        case .desktop: panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) + 1)
+        }
+        if panel.isVisible { panel.orderFrontRegardless() }
     }
 
     private func restorePosition() {

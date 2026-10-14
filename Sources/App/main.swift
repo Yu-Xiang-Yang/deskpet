@@ -1,6 +1,7 @@
 import AppKit
 
 MainActor.assumeIsolated {
+    LegacyDefaults.migrate()
     let app = NSApplication.shared
     let controller = AppController()
     app.delegate = controller

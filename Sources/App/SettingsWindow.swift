@@ -120,7 +120,9 @@ struct SettingsView: View {
                 Picker(tr("自由走动", "Wandering"), selection: $settings.wander) {
                     ForEach(WanderLevel.allCases) { Text($0.title).tag($0) }
                 }
-                Toggle(tr("始终置顶", "Always on top"), isOn: $settings.alwaysOnTop)
+                Picker(tr("显示层级", "Window layer"), selection: $settings.petLayer) {
+                    ForEach(PetLayer.allCases) { Text($0.title).tag($0) }
+                }
             }
             Section(tr("系统", "System")) {
                 Picker(tr("语言", "Language"), selection: $language) {
@@ -135,6 +137,7 @@ struct SettingsView: View {
                 Toggle(tr("登录时启动", "Launch at login"), isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, on in
                         if !LoginItem.set(on) { launchAtLogin = LoginItem.enabled }
+                        UserDefaults.standard.set(LoginItem.enabled, forKey: "launchAtLogin")
                     }
             }
         }
