@@ -7,7 +7,10 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private let settings = AppSettings.shared
     private let pet = PetWindowController()
     private lazy var brain = PetBrain(pet: pet)
-    private lazy var reminders = ReminderScheduler { [weak self] text, motion in self?.brain.remind(text, motion: motion) }
+    private lazy var reminders = ReminderScheduler { [weak self] text, motion in
+        self?.mischief.interrupt()  // e.g. back from a screen edge, so that the bubble is fully visible
+        self?.brain.remind(text, motion: motion)
+    }
     private lazy var weather = WeatherWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
     private let engine = ResearchEngine()
     private lazy var research = ResearchWindowController(engine: engine)
@@ -23,6 +26,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private var greeted = false
     private lazy var hotKey = GlobalHotKey { [weak self] in self?.toggleChatFromHotKey() }
     private var wanderTimer: Timer?
+    private lazy var mischief = Mischief(pet: pet)
     private let music = MusicMonitor()
     private var lastMusicRemark = Date.distantPast
     private var nextWander = Date.distantFuture
@@ -71,9 +75,12 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }.store(in: &subscriptions)
 
         settings.$wander.removeDuplicates().sink { [weak self] level in self?.scheduleWander(level) }.store(in: &subscriptions)
+        mischief.canAct = { [weak self] in self?.mayActOnItsOwn ?? false }
+        mischief.reallyAsleep = { [weak self] in self?.brain.sleeping ?? false }
         let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.wanderIfDue()
+                self?.mischief.tick()
                 self?.runDailyTasksIfDue()  // covers a day change while the app keeps running
             }
         }
@@ -109,14 +116,17 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     /// A click on the head pets the pet; only a click that triggers nothing else (the body) opens the chat box.
     func petDidClick(area: String, clickCount: Int) {
         switch area {
-        case "head": if clickCount == 1 { brain.pat() }
-        case "body": openChat()
+        case "head":
+            if clickCount == 1, !mischief.caught(), !mischief.sulkAtPat() { brain.pat() }
+        case "body":
+            _ = mischief.caught()
+            openChat()
         case let a where a.hasPrefix("answer:"): showMessageList(String(a.dropFirst("answer:".count)))
         default: break  // a bubble (dismissed by the page itself)
         }
     }
 
-    func petDidMove() {}
+    func petDidMove() { mischief.ownerMoved() }
 
     func petContextMenu() -> NSMenu {
         let menu = NSMenu()
@@ -133,6 +143,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     /// `activating` is used by the global shortcut: with no click on the panel, the app has to become
     /// active to receive keystrokes; the previous app is reactivated when the box closes.
     private func showChat(activating: Bool) {
+        mischief.interrupt()
         let name = settings.petName
         let wasOpen = chatPanel.isVisible
         if !pet.panel.isVisible { setPetVisible(true) }
@@ -154,6 +165,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private func setResearchMode(_ on: Bool) {
         guard on != researchMode else { return }
         researchMode = on
+        mischief.interrupt()
         pet.cancelHop()
         pet.setResearch(on)
         pet.setBubbles(on ? PetWindowController.researchBubbles : PetWindowController.chatBubbles)
@@ -320,6 +332,8 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
                 else if command == "research-off" { self.setResearchMode(false) }
                 else if command.hasPrefix("ask:") { self.chatPanel.onSend?(String(command.dropFirst(4))) }
                 else if command == "daily" { self.runDailyTasks() }
+                else if command.hasPrefix("mischief:") { self.mischief.trigger(String(command.dropFirst(9))) }
+                else if command == "pat" { self.petDidClick(area: "head", clickCount: 1) }
             }
         }
     }
@@ -400,10 +414,20 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
 
     private func wanderIfDue() {
         guard Date() >= nextWander else { return }
+        // Not while the owner is typing: the hop waits until a pause instead of being skipped.
+        if Mischief.keyboardIdleSeconds < 20 {
+            nextWander = Date().addingTimeInterval(.random(in: 30...90))
+            return
+        }
         scheduleWander(settings.wander)
-        // Only while the user is around and nothing else is going on; never in research mode.
-        guard !researchMode, !chatPanel.isVisible, !brain.sleeping, PetBrain.idleSeconds < 120 else { return }
+        guard mayActOnItsOwn else { return }
         wander()
+    }
+
+    /// Only while the owner is around and nothing else is going on; never in research mode.
+    private var mayActOnItsOwn: Bool {
+        pet.panel.isVisible && !researchMode && !chatPanel.isVisible && !brain.sleeping && !brain.musicPlaying
+            && !mischief.busy && !pet.hopping && !pet.dragging && PetBrain.idleSeconds < 120
     }
 
     @objc private func wanderNow() { wander() }

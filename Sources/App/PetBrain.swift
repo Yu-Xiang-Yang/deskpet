@@ -216,6 +216,7 @@ final class PetBrain {
             (tr("再摸就要长不高啦！", "I'll stop growing if you keep doing that!"), .shy),
             (tr("诶嘿嘿 (*/ω＼*)", "Ehehe (*/ω＼*)"), .happy),
             (tr("今天也要加油哦！", "Let's do our best today!"), .happy),
+            (tr("不许摸！……好吧，再摸一下。", "No touching! …Okay, one more."), .shy),
             (tr("唔……好舒服……", "Mm… that's nice…"), .sleepy),
         ]
         let (text, motion) = lines.randomElement()!
@@ -279,6 +280,9 @@ final class PetBrain {
             (tr("♪～哼哼～♪", "♪~hmm hmm~♪"), .happy),
             (tr("遇到难题可以右键点我，打开科研模式～", "Stuck on a problem? Right-click me for research mode~"), .nod),
             (tr("眼睛累了就看看远处吧。", "Rest your eyes by looking into the distance."), .nod),
+            (tr("刚才趁你不注意，我偷偷数了你的桌面图标……数不清。", "While you weren't looking I tried counting your desktop icons… too many."), .think),
+            (tr("再不理我，我就躲到屏幕边上去！", "Ignore me any longer and I'll go hide at the edge of the screen!"), .shy),
+            (tr("嘿嘿，刚刚是不是挡住你的鼠标了？", "Hehe, was I in the way of your mouse just now?"), .happy),
         ]
         if hour >= 23 || hour < 5 { pool.append((tr("已经很晚了，早点休息吧……", "It's late, maybe get some sleep…"), .sleepy)) }
         if (14...16).contains(hour) { pool.append((tr("下午容易犯困，起来走走吧！", "Afternoons get sleepy, take a walk!"), .wave)) }

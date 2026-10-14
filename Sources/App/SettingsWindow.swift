@@ -120,6 +120,12 @@ struct SettingsView: View {
                 Picker(tr("自由走动", "Wandering"), selection: $settings.wander) {
                     ForEach(WanderLevel.allCases) { Text($0.title).tag($0) }
                 }
+                Text(tr("打字时不会走动，停手后再走。", "The pet does not move while you type; it waits for a pause."))
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle(tr("淘气行为", "Mischief"), isOn: $settings.mischief)
+                Text(tr("偶尔装睡、躲到屏幕边偷看、偷偷溜到鼠标旁，摸头太多次会闹脾气；每 8–15 分钟至多一次，打字时不会发生，点一下桌宠即可结束。",
+                        "Now and then the pet pretends to sleep, peeks out from a screen edge or sneaks up to the pointer, and sulks when petted too often; at most once every 8–15 minutes, never while you type, and a click ends it."))
+                    .font(.caption).foregroundStyle(.secondary)
                 Picker(tr("显示层级", "Window layer"), selection: $settings.petLayer) {
                     ForEach(PetLayer.allCases) { Text($0.title).tag($0) }
                 }

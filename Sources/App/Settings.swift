@@ -71,6 +71,8 @@ final class AppSettings: ObservableObject {
     @Published var followBeat: Bool { didSet { defaults.set(followBeat, forKey: "followBeat") } }
     /// How often the pet hops to another place on its own.
     @Published var wander: WanderLevel { didSet { defaults.set(wander.rawValue, forKey: "wander") } }
+    /// Occasional pranks: pretending to sleep, peeking from a screen edge, sneaking up to the pointer, sulking.
+    @Published var mischief: Bool { didSet { defaults.set(mischief, forKey: "mischief") } }
     /// Global shortcut that opens the chat box.
     @Published var hotKey: HotKeyPreset { didSet { defaults.set(hotKey.rawValue, forKey: "hotKey") } }
 
@@ -97,6 +99,7 @@ final class AppSettings: ObservableObject {
             "alwaysOnTop": true,
             "hotKey": HotKeyPreset.optionSpace.rawValue,
             "wander": WanderLevel.medium.rawValue,
+            "mischief": true,
             "danceToMusic": true,
             "autoMemory": true,
             "weatherAlerts": true,
@@ -128,6 +131,7 @@ final class AppSettings: ObservableObject {
             ?? (defaults.bool(forKey: "alwaysOnTop") ? .top : .normal)
         hotKey = HotKeyPreset(rawValue: defaults.string(forKey: "hotKey") ?? "") ?? .optionSpace
         wander = WanderLevel(rawValue: defaults.string(forKey: "wander") ?? "") ?? .medium
+        mischief = defaults.bool(forKey: "mischief")
         danceToMusic = defaults.bool(forKey: "danceToMusic")
         autoMemory = defaults.bool(forKey: "autoMemory")
         weatherAlerts = defaults.bool(forKey: "weatherAlerts")
@@ -168,9 +172,9 @@ enum WanderLevel: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .off: return tr("不走动", "Stay put")
-        case .low: return tr("偶尔（3–6 分钟一次）", "Rarely (every 3–6 min)")
-        case .medium: return tr("适中（1–3 分钟一次）", "Sometimes (every 1–3 min)")
-        case .high: return tr("活泼（半分钟到一分钟一次）", "Often (every 30–60 s)")
+        case .low: return tr("偶尔（15–30 分钟一次）", "Rarely (every 15–30 min)")
+        case .medium: return tr("适中（5–10 分钟一次）", "Sometimes (every 5–10 min)")
+        case .high: return tr("活泼（2–4 分钟一次）", "Often (every 2–4 min)")
         }
     }
 
@@ -178,9 +182,9 @@ enum WanderLevel: String, CaseIterable, Identifiable {
     var interval: ClosedRange<Double>? {
         switch self {
         case .off: return nil
-        case .low: return 180...360
-        case .medium: return 60...180
-        case .high: return 30...60
+        case .low: return 900...1800
+        case .medium: return 300...600
+        case .high: return 120...240
         }
     }
 }
