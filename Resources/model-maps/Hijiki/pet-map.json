@@ -95,5 +95,6 @@
   },
   "name": "黑猫 Hijiki",
   "look": "一只黑猫，说话时偶尔在句尾带一个“喵”",
-  "credit": "This content uses sample data owned and copyrighted by Live2D Inc."
+  "credit": "This content uses sample data owned and copyrighted by Live2D Inc.",
+  "voice": "cat"
 }

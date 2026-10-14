@@ -73,6 +73,9 @@ final class AppSettings: ObservableObject {
     @Published var wander: WanderLevel { didSet { defaults.set(wander.rawValue, forKey: "wander") } }
     /// Occasional pranks: pretending to sleep, peeking from a screen edge, sneaking up to the pointer, sulking.
     @Published var mischief: Bool { didSet { defaults.set(mischief, forKey: "mischief") } }
+    /// Synthesised cat sounds for cat characters, and their volume (0…1).
+    @Published var meow: Bool { didSet { defaults.set(meow, forKey: "meow") } }
+    @Published var meowVolume: Double { didSet { defaults.set(meowVolume, forKey: "meowVolume") } }
     /// Global shortcut that opens the chat box.
     @Published var hotKey: HotKeyPreset { didSet { defaults.set(hotKey.rawValue, forKey: "hotKey") } }
 
@@ -100,6 +103,8 @@ final class AppSettings: ObservableObject {
             "hotKey": HotKeyPreset.optionSpace.rawValue,
             "wander": WanderLevel.medium.rawValue,
             "mischief": true,
+            "meow": true,
+            "meowVolume": 0.5,
             "danceToMusic": true,
             "autoMemory": true,
             "weatherAlerts": true,
@@ -132,6 +137,8 @@ final class AppSettings: ObservableObject {
         hotKey = HotKeyPreset(rawValue: defaults.string(forKey: "hotKey") ?? "") ?? .optionSpace
         wander = WanderLevel(rawValue: defaults.string(forKey: "wander") ?? "") ?? .medium
         mischief = defaults.bool(forKey: "mischief")
+        meow = defaults.bool(forKey: "meow")
+        meowVolume = defaults.double(forKey: "meowVolume")
         danceToMusic = defaults.bool(forKey: "danceToMusic")
         autoMemory = defaults.bool(forKey: "autoMemory")
         weatherAlerts = defaults.bool(forKey: "weatherAlerts")
@@ -148,6 +155,21 @@ final class AppSettings: ObservableObject {
     你是一只住在用户电脑桌面上的桌面宠物。性格元气、温柔、偶尔有一点小调皮，说话简短自然，\
     会关心用户的作息与情绪，但不说教。你同时是可靠的学习与科研伙伴。
     """
+}
+
+/// The synthesised cat sounds (Resources/web/meow.js).
+enum MeowKind: String {
+    case meow, mew, trill, angry, sad, purr
+
+    /// The sound that fits a motion of a reply.
+    init(_ motion: PetMotion) {
+        switch motion {
+        case .happy, .wave, .shy: self = .trill
+        case .surprised, .shake: self = .mew
+        case .sad: self = .sad
+        default: self = .meow
+        }
+    }
 }
 
 enum PetLayer: String, CaseIterable, Identifiable {

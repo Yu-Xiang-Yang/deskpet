@@ -125,9 +125,17 @@ final class MusicMonitor {
             size = UInt32(MemoryLayout<pid_t>.size)
             addr = address(kAudioProcessPropertyPID)
             AudioObjectGetPropertyData(process, &addr, 0, nil, &size, &pid)
-            if pid != own { return true }
+            // WebKit plays this app's own sounds (the cat's meows) from helper processes it is responsible for.
+            if pid != own, responsiblePID(pid) != own { return true }
         }
         return false
+    }
+
+    /// The process macOS holds responsible for `pid` (for WebKit's helper processes: the app that uses WebKit).
+    nonisolated static func responsiblePID(_ pid: pid_t) -> pid_t {
+        typealias Lookup = @convention(c) (pid_t) -> pid_t
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_get_pid_responsible_for_pid") else { return pid }
+        return unsafeBitCast(symbol, to: Lookup.self)(pid)
     }
 
     @available(macOS 14.2, *)

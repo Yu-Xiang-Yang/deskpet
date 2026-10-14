@@ -504,6 +504,7 @@
     });
 
     l2d = { app, model, map, motionParams: {}, stateParams: {} };
+    if (map.voice === "cat" && window.Meow) window.Meow.preload();
     mode = "live2d";
     playLive2D("idle");
     scheduleIdleAction();
@@ -585,6 +586,11 @@
       play(sleeping ? "sleepy" : "idle");
     },
     setScale(s) { root.style.setProperty("--pet-scale", String(s || 1)); },
+    /** A cat sound (meow.js) for characters whose pet-map.json declares "voice": "cat"; `volume` 0…1. */
+    meow(kind, volume) {
+      if (!l2d || l2d.map.voice !== "cat" || !window.Meow) return;
+      window.Meow.play(kind, volume).catch((e) => log("meow failed:", e && e.message));
+    },
     /** Horizontal range of the page (CSS pixels) that is on screen. */
     setSafeArea(left, right) { safe = { left, right }; layoutBubbles(); },
     setGrooving,

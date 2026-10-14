@@ -15,6 +15,15 @@ DeskPet 源代码以 MIT 许可证发布。下列组件与数据来源由各自�
 | [KaTeX](https://github.com/KaTeX/KaTeX) | 0.16.11 | MIT |
 | [highlight.js](https://github.com/highlightjs/highlight.js) | 11.10.0 | BSD-3-Clause |
 
+## 随项目分发的音频素材
+
+`Resources/web/sounds/` 中的猫叫为真实录音剪辑而成（截取单声、淡入淡出、归一化后转为 AAC），原始录音均以 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) 发布，不要求署名，此处注明以示感谢。
+
+| 文件 | 来源 | 作者 |
+| --- | --- | --- |
+| `meow1`–`meow4` | [BigSoundBank #0098 “Small mewing of a cat”](https://bigsoundbank.com/small-mewing-of-a-cat-s0098.html) | Joseph Sardin |
+| `mew1`–`mew3`、`trill1`、`trill2`、`purr` | [OpenGameArt “cat purr meow”](https://opengameart.org/content/cat-purr-meow)（`cat_mewfood`、`cat_softmew`、`cat_mewpurr`、`cat_mewpurr2`、`cat_purrsleepy_loop`） | Kerzoven |
+
 ## 不包含于本项目、须由使用者自行获取的组件
 
 | 组件 | 许可 | 说明 |

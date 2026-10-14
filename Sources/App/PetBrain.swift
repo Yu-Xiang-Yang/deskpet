@@ -179,6 +179,7 @@ final class PetBrain {
         pet.setStatus(nil)
         pet.play(reply.motion)
         pet.say(reply.reply)
+        pet.meow(MeowKind(reply.motion), chance: 0.3)
         if let remind = reply.remind { onRemind?(remind) }
         if let keyword = reply.forget {
             let n = MemoryStore.shared.forget(keyword)
@@ -222,6 +223,7 @@ final class PetBrain {
         let (text, motion) = lines.randomElement()!
         pet.play(motion)
         pet.say(text)
+        pet.meow(.purr)
     }
 
     func greet() {
@@ -236,11 +238,13 @@ final class PetBrain {
         }
         pet.play(.wave)
         pet.say(text)
+        pet.meow(.meow)
     }
 
     /// Reminder delivery: local wording, optionally rephrased by the model in the persona's voice.
     func remind(_ text: String, motion: PetMotion) {
         wake()
+        pet.meow(.meow)
         guard settings.aiReminderWording else {
             pet.play(motion)
             pet.say(text, kind: "reminder", ms: 12000)
@@ -289,6 +293,7 @@ final class PetBrain {
         let (text, motion) = pool.randomElement()!
         pet.play(motion)
         pet.say(text)
+        pet.meow(MeowKind(motion), chance: 0.3)
     }
 
     // MARK: Sleep
@@ -305,6 +310,7 @@ final class PetBrain {
         } else if sleeping, idle < 5 {
             wake()
             pet.say(tr("啊，你回来啦！", "Oh, welcome back!"))
+            pet.meow(.trill)
             pet.play(.wave)
         }
     }

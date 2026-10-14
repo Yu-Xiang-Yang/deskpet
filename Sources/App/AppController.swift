@@ -58,6 +58,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }
         settingsWindow.onTestReminders = { [weak self] in self?.reminders.fireAllForTesting() }
         settingsWindow.onRunDailyTasks = { [weak self] in self?.runDailyTasks() }
+        settingsWindow.onPreviewMeow = { [weak self] in self?.pet.meow(.meow) }
         settingsWindow.onCheckWeather = { [weak self] report in self?.weather.check(force: true, report: report) }
 
         settings.$petScale.dropFirst().removeDuplicates().sink { [weak self] in self?.pet.scale = CGFloat($0) }.store(in: &subscriptions)
@@ -342,6 +343,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
                 else if command == "daily" { self.runDailyTasks() }
                 else if command.hasPrefix("mischief:") { self.mischief.trigger(String(command.dropFirst(9))) }
                 else if command == "pat" { self.petDidClick(area: "head", clickCount: 1) }
+                else if command.hasPrefix("meow:") { self.pet.meow(MeowKind(rawValue: String(command.dropFirst(5))) ?? .meow) }
             }
         }
     }

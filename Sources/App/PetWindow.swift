@@ -177,6 +177,15 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
         whenReady { [weak self] in self?.webView.call("pet.play", .string(motion.rawValue)) }
     }
 
+    /// A cat sound (only for characters with "voice": "cat" in their pet-map.json); `chance` 0…1.
+    func meow(_ kind: MeowKind, chance: Double = 1) {
+        let settings = AppSettings.shared
+        guard settings.meow, settings.meowVolume > 0, Double.random(in: 0..<1) < chance else { return }
+        whenReady { [weak self] in
+            self?.webView.call("pet.meow", .string(kind.rawValue), .number(settings.meowVolume))
+        }
+    }
+
     func setStatus(_ text: String?) {
         whenReady { [weak self] in self?.webView.call("pet.setStatus", text.map(JSON.string) ?? .null) }
     }

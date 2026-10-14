@@ -7,6 +7,7 @@ final class SettingsWindowController {
     var onTestReminders: (() -> Void)?
     var onRunDailyTasks: (() -> Void)?
     var onCheckWeather: ((@escaping (String) -> Void) -> Void)?
+    var onPreviewMeow: (() -> Void)?
 
     func show(tab: SettingsView.Tab = .general) {
         if window == nil {
@@ -15,7 +16,8 @@ final class SettingsWindowController {
                 onModelChange: { [weak self] in self?.onModelChange?() },
                 onTestReminders: { [weak self] in self?.onTestReminders?() },
                 onRunDailyTasks: { [weak self] in self?.onRunDailyTasks?() },
-                onCheckWeather: { [weak self] report in self?.onCheckWeather?(report) }))
+                onCheckWeather: { [weak self] report in self?.onCheckWeather?(report) },
+                onPreviewMeow: { [weak self] in self?.onPreviewMeow?() }))
             let w = NSWindow(contentViewController: hosting)
             w.title = tr("桌宠设置", "DeskPet Settings")
             w.styleMask = [.titled, .closable, .miniaturizable]
@@ -37,6 +39,7 @@ struct SettingsView: View {
     var onTestReminders: () -> Void
     var onRunDailyTasks: () -> Void
     var onCheckWeather: (@escaping (String) -> Void) -> Void
+    var onPreviewMeow: () -> Void
 
     @ObservedObject private var memory = MemoryStore.shared
     @State private var newMemory = ""
@@ -125,6 +128,17 @@ struct SettingsView: View {
                 Toggle(tr("淘气行为", "Mischief"), isOn: $settings.mischief)
                 Text(tr("偶尔装睡、躲到屏幕边偷看、偷偷溜到鼠标旁，摸头太多次会闹脾气；每 8–15 分钟至多一次，打字时不会发生，点一下桌宠即可结束。",
                         "Now and then the pet pretends to sleep, peeks out from a screen edge or sneaks up to the pointer, and sulks when petted too often; at most once every 8–15 minutes, never while you type, and a click ends it."))
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle(tr("猫叫", "Cat sounds"), isOn: $settings.meow)
+                if settings.meow {
+                    HStack {
+                        Text(tr("音量", "Volume"))
+                        Slider(value: $settings.meowVolume, in: 0.05...1) { editing in
+                            if !editing { onPreviewMeow() }
+                        }
+                    }
+                }
+                Text(tr("摸头时打呼噜，打招呼、提醒、淘气和部分回复时喵一声（真猫录音，仅猫形象）。", "Purrs when petted and meows when greeting, reminding, up to mischief and with some replies (real recordings, cat characters only)."))
                     .font(.caption).foregroundStyle(.secondary)
                 Picker(tr("显示层级", "Window layer"), selection: $settings.petLayer) {
                     ForEach(PetLayer.allCases) { Text($0.title).tag($0) }

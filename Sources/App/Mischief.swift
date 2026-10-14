@@ -89,6 +89,7 @@ final class Mischief {
             nextJump = now.addingTimeInterval(.random(in: 180...360))
             if canJoke() {
                 pet.bounce()
+                pet.meow(.mew)
                 if Bool.random() { pet.say(tr("嗨～！", "Woo~!"), ms: 2500) }
             }
         }
@@ -102,6 +103,7 @@ final class Mischief {
               Date().timeIntervalSince(lastEncore) > 1200, canJoke() else { return }
         lastEncore = Date()
         pet.play(.sad)
+        pet.meow(.sad)
         pet.say([tr("再放一首嘛～", "One more song~"),
                  tr("诶，怎么停了？我还没跳够呢！", "Huh, it stopped? I wasn't done dancing!"),
                  tr("安可！安可！", "Encore! Encore!")].randomElement()!)
@@ -156,6 +158,7 @@ final class Mischief {
         case .fakeSleep:
             endFakeSleep()
             pet.play(.happy)
+            pet.meow(.trill)
             pet.say([tr("嘿嘿，被发现了！其实我是装睡的～", "Hehe, you caught me! I was only pretending~"),
                      tr("呼……呼……诶？你怎么知道我没睡！", "Zzz… huh? How did you know I was awake!")].randomElement()!)
         case .peek(let returnX, _):
@@ -170,6 +173,7 @@ final class Mischief {
         let now = Date()
         if now < sulkingUntil {
             pet.play(.shake)
+            pet.meow(.angry)
             pet.say([tr("哼！说了不给摸了！", "Hmph! I said no more pats!"),
                      tr("(｀へ´) 不理你。", "(｀へ´) Not talking to you.")].randomElement()!)
             return true
@@ -179,6 +183,7 @@ final class Mischief {
         pats = []
         sulkingUntil = now.addingTimeInterval(30)
         pet.play(.shake)
+        pet.meow(.angry)
         pet.say(tr("摸太多啦！头发都乱了，我生气了，哼！", "Too many pats! You messed up my fur. Hmph!"))
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.stompOff() }
         return true
@@ -225,6 +230,7 @@ final class Mischief {
         pet.wander(to: target) { [weak self] in
             guard let self, case .peek = self.prank else { return }
             self.pet.play(.shy)
+            self.pet.meow(.mew)
             self.pet.say(tr("（偷看）👀", "(peeking) 👀"), ms: 5000)
         }
     }
@@ -234,6 +240,7 @@ final class Mischief {
         pet.cancelHop()
         if caught {
             pet.play(.happy)
+            pet.meow(.trill)
             pet.say([tr("被你发现了～", "You found me~"),
                      tr("嘿嘿，我在玩捉迷藏！", "Hehe, I was playing hide-and-seek!")].randomElement()!)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.pet.wander(to: returnX) }
@@ -253,6 +260,7 @@ final class Mischief {
         target = frame.minX + max(-520, min(520, target - frame.minX))
         pet.wander(to: target) { [weak self] in
             self?.pet.play(.happy)
+            self?.pet.meow(.mew)
             self?.pet.say([tr("嘿嘿，偷偷跟过来了～", "Hehe, I sneaked over~"),
                            tr("抓到你的鼠标啦！", "Got your mouse pointer!"),
                            tr("你在看什么呀？让我也看看～", "What are you looking at? Let me see~")].randomElement()!)
