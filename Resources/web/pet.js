@@ -179,6 +179,24 @@
     setTimeout(() => n.remove(), 1900);
   }
 
+  // ---------------------------------------------------------------- bubble placement
+  // The window may overhang the screen edge so that the character can sit at the edge; the shell
+  // reports which horizontal part of the page is on screen, and the bubbles are kept inside it.
+
+  let bubbleWidth = 304;
+  let safe = { left: 0, right: Infinity };
+
+  function layoutBubbles() {
+    const vw = window.innerWidth;
+    const left = Math.max(0, safe.left), right = Math.min(vw, safe.right);
+    const width = Math.max(140, Math.min(bubbleWidth, right - left - 8));
+    const x = Math.min(Math.max(vw / 2 - width / 2, left + 4), right - width - 4);
+    bubbles.style.width = width + "px";
+    bubbles.style.left = Math.max(0, x) + "px";
+    bubbles.style.marginLeft = "0";
+  }
+  window.addEventListener("resize", layoutBubbles);
+
   function setTalking(on) {
     talking = on;
     root.classList.toggle("talking", on && !sleeping);
@@ -567,10 +585,14 @@
       play(sleeping ? "sleepy" : "idle");
     },
     setScale(s) { root.style.setProperty("--pet-scale", String(s || 1)); },
+    /** Horizontal range of the page (CSS pixels) that is on screen. */
+    setSafeArea(left, right) { safe = { left, right }; layoutBubbles(); },
     setGrooving,
     beat,
     /** Size of the bubble area in CSS pixels. */
     setLayout(w, h) {
+      bubbleWidth = w;
+      layoutBubbles();
       root.style.setProperty("--bubbles-w", w + "px");
       root.style.setProperty("--bubbles-h", h + "px");
     },

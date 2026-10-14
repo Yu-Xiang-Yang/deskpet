@@ -285,11 +285,25 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
             let solid = panel.frame.contains(mouse) && isSolid(pagePoint(mouse))
             if panel.ignoresMouseEvents == solid { panel.ignoresMouseEvents = !solid }
         }
+        updateSafeArea()
         if mouse != lastMouse, ready {
             lastMouse = mouse
             let p = pagePoint(mouse)
             webView.call("pet.lookAt", .number(Double(p.x)), .number(Double(p.y)))
         }
+    }
+
+    /// Tells the page which horizontal part of the window is on screen, so that bubbles stay visible
+    /// when the window overhangs a screen edge (only sent when it changes).
+    private var lastSafeArea = NSPoint(x: -1, y: -1)
+
+    private func updateSafeArea() {
+        guard ready, let screen = panel.screen ?? NSScreen.main else { return }
+        let f = panel.frame, visible = screen.visibleFrame
+        let range = NSPoint(x: max(0, visible.minX - f.minX).rounded(), y: min(f.width, visible.maxX - f.minX).rounded())
+        guard range != lastSafeArea else { return }
+        lastSafeArea = range
+        webView.call("pet.setSafeArea", .number(Double(range.x)), .number(Double(range.y)))
     }
 
     // MARK: Hopping
@@ -412,7 +426,8 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
         // margins beside the character may overhang the edge.
         let marginX = bubbles.width > Self.chatBubbles.width ? 0 : f.width * 0.3
         f.origin.x = min(max(f.origin.x, area.minX - marginX), area.maxX - f.width + marginX)
-        f.origin.y = min(max(f.origin.y, area.minY - f.height * 0.05), visible.maxY - f.height * 0.45)
+        // The bubble area at the top of the window stays below the top of the screen.
+        f.origin.y = min(max(f.origin.y, area.minY - f.height * 0.05), visible.maxY - f.height)
         return f
     }
 }

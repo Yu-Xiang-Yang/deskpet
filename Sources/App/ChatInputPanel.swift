@@ -81,9 +81,15 @@ final class ChatInputPanel: NSPanel, NSTextFieldDelegate {
         field.placeholderString = placeholder
         let a = anchor.frame
         var origin = NSPoint(x: a.midX - frame.width / 2, y: a.minY - frame.height - 4)
-        if let screen = anchor.screen ?? NSScreen.main, origin.y < screen.visibleFrame.minY {
-            // No room below the pet (it usually stands on the Dock): overlap its lower edge instead.
-            origin.y = a.minY + 8
+        if let screen = anchor.screen ?? NSScreen.main {
+            let visible = screen.visibleFrame
+            if origin.y < visible.minY {
+                // No room below the pet (it usually stands on the Dock): overlap its lower edge instead.
+                origin.y = a.minY + 8
+            }
+            // Keep the whole box on screen when the pet sits at a screen edge.
+            origin.x = min(max(origin.x, visible.minX + 4), visible.maxX - frame.width - 4)
+            origin.y = max(origin.y, visible.minY + 4)
         }
         setFrameOrigin(origin)
         if parent == nil { anchor.addChildWindow(self, ordered: .above) }
