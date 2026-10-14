@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research</title>
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<link rel="stylesheet" href="vendor/hljs/github.min.css" media="(prefers-color-scheme: light)">
+<link rel="stylesheet" href="vendor/hljs/github-dark.min.css" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="research.css">
+</head>
+<body>
+<aside id="sidebar">
+  <div class="side-head">
+    <input id="search" type="search" placeholder="搜索对话标题">
+    <button id="new" class="primary" title="新建科研对话">＋</button>
+  </div>
+  <ul id="list"></ul>
+</aside>
+
+<main id="main">
+  <header id="header">
+    <h1 id="title" title="双击重命名"></h1>
+    <span id="meta" class="chip"></span>
+    <span class="spacer"></span>
+    <button id="rename" class="ghost">重命名</button>
+    <button id="delete" class="ghost danger">删除</button>
+  </header>
+
+  <section id="messages"></section>
+
+  <footer id="composer">
+    <textarea id="input" rows="3" placeholder="输入科研问题，⌘↩ 发送"></textarea>
+    <div class="composer-bar">
+      <label class="toggle"><input id="web" type="checkbox" checked> <span id="webLabel">联网检索文献</span></label>
+      <span class="hint" id="hint"></span>
+      <span class="spacer"></span>
+      <button id="send" class="primary">发送</button>
+    </div>
+  </footer>
+</main>
+
+<script src="vendor/marked.min.js"></script>
+<script src="vendor/purify.min.js"></script>
+<script src="vendor/katex/katex.min.js"></script>
+<script src="vendor/hljs/highlight.min.js"></script>
+<script src="md.js"></script>
+<script src="research.js"></script>
+</body>
+</html>

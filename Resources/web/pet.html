@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeskPet</title>
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<link rel="stylesheet" href="pet.css">
+</head>
+<body>
+<div id="bubbles"></div>
+
+<div id="stage">
+  <!-- #actor squashes and stretches during hops; the Live2D canvas inside keeps its own animation. -->
+  <div id="actor">
+    <canvas id="live2d"></canvas>
+  </div>
+</div>
+
+
+<script src="vendor/marked.min.js"></script>
+<script src="vendor/purify.min.js"></script>
+<script src="vendor/katex/katex.min.js"></script>
+<script src="md.js"></script>
+<script src="pet.js"></script>
+</body>
+</html>

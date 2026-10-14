@@ -1,0 +1,99 @@
+{
+  "scale": 1.15,
+  "offsetY": 0,
+  "motions": {
+    "idle": {
+      "group": "Idle"
+    },
+    "happy": {
+      "group": "Tap",
+      "index": 2
+    },
+    "wave": {
+      "group": "Tap",
+      "index": 2
+    },
+    "nod": {
+      "group": "Idle",
+      "index": 1
+    },
+    "shake": {
+      "group": "Idle",
+      "index": 1,
+      "params": {
+        "PARAM_EAR_L": -0.7,
+        "PARAM_EAR_R": -0.7,
+        "PARAM_TAIL_ANGRY": 1
+      }
+    },
+    "think": {
+      "group": "Tap",
+      "index": 1
+    },
+    "surprised": {
+      "group": "FlickDown",
+      "index": 0
+    },
+    "sleepy": {
+      "group": "Tap",
+      "index": 0
+    },
+    "shy": {
+      "group": "Tap",
+      "index": 1
+    },
+    "eat": {
+      "group": "Flick",
+      "index": 0
+    },
+    "sad": {
+      "group": "Idle",
+      "index": 0,
+      "params": {
+        "PARAM_EAR_L": -1,
+        "PARAM_EAR_R": -1,
+        "PARAM_EYE_L_OPEN": 0.55,
+        "PARAM_EYE_R_OPEN": 0.55,
+        "PARAM_ANGLE_Y": -12
+      }
+    }
+  },
+  "idleActions": [
+    {
+      "group": "FlickUp",
+      "index": 0
+    },
+    {
+      "group": "Flick",
+      "index": 0
+    },
+    {
+      "group": "Tap",
+      "index": 1
+    },
+    {
+      "group": "Idle",
+      "index": 2
+    },
+    {
+      "group": "Tap",
+      "index": 0
+    }
+  ],
+  "idleActionSeconds": [
+    18,
+    45
+  ],
+  "states": {
+    "sleep": {
+      "PARAM_EYE_L_OPEN": 0,
+      "PARAM_EYE_R_OPEN": 0,
+      "PARAM_ANGLE_Y": -14,
+      "PARAM_EAR_L": -0.5,
+      "PARAM_EAR_R": -0.5
+    }
+  },
+  "name": "白猫 Tororo",
+  "look": "一只蓝眼睛的白猫，说话时偶尔在句尾带一个“喵”",
+  "credit": "This content uses sample data owned and copyrighted by Live2D Inc."
+}

@@ -1,0 +1,209 @@
+:root {
+  --bubble-bg: rgba(255, 255, 255, 0.96);
+  --bubble-fg: #3b2a4a;
+  --bubble-border: #f4a6cb;
+  --accent: #7a5ae0;
+  --accent-2: #ff6fa5;
+  color-scheme: light;
+}
+
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif;
+}
+
+/* ---------- Stage ---------- */
+
+/* The character is drawn at 320×340 and scaled about its feet; the bubbles keep their size. */
+#stage {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 320px;
+  height: 340px;
+  margin-left: -160px;
+  transform: scale(var(--pet-scale, 1));
+  transform-origin: 50% 100%;
+}
+
+#actor { position: absolute; inset: 0; transform-origin: 50% 100%; }
+
+/* Hop phases, driven by the native shell while it moves the window along the arc. */
+.hop-crouch #actor { transform: scale(1.07, 0.88); transition: transform 0.16s ease-out; }
+.hop-air #actor { transform: scale(0.95, 1.06); transition: transform 0.12s ease-out; }
+.hop-land #actor { animation: hop-land 0.34s ease-out; }
+@keyframes hop-land { 0% { transform: scale(1.1, 0.86); } 55% { transform: scale(0.97, 1.04); } 100% { transform: none; } }
+
+#live2d {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---------- Music ---------- */
+
+.note {
+  position: absolute;
+  z-index: 5;
+  font-size: 19px;
+  color: #8a6ae6;
+  text-shadow: 0 1px 4px rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+  animation: note-float 1.8s ease-out forwards;
+}
+@keyframes note-float {
+  from { transform: translate(0, 6px) scale(0.6) rotate(-10deg); opacity: 0; }
+  20% { opacity: 1; }
+  to { transform: translate(var(--dx), -64px) scale(1.15) rotate(12deg); opacity: 0; }
+}
+
+/* ---------- Bubbles ---------- */
+
+#bubbles {
+  position: absolute;
+  left: 50%;
+  width: var(--bubbles-w, 304px);
+  margin-left: calc(var(--bubbles-w, 304px) / -2);
+  top: 4px;
+  height: var(--bubbles-h, 214px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.bubble {
+  position: relative;
+  flex: none;
+  /* The container lets clicks through; the bubbles themselves are hit-testable (click, scroll). */
+  pointer-events: auto;
+  align-self: center;
+  box-sizing: border-box;
+  max-width: 284px;
+  padding: 7px 12px;
+  border-radius: 14px;
+  background: var(--bubble-bg);
+  color: var(--bubble-fg);
+  border: 1.5px solid var(--bubble-border);
+  box-shadow: 0 4px 14px rgba(90, 50, 130, 0.16);
+  font-size: 13px;
+  line-height: 1.45;
+  word-break: break-word;
+  white-space: pre-wrap;
+  animation: bubble-in 0.26s cubic-bezier(.2, .8, .2, 1);
+  transition: opacity 0.6s ease, scale 0.6s ease;
+  transform-origin: 50% 100%;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+}
+/* The tail points at the head, so only the bubble nearest to it has one. */
+.bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background: var(--bubble-bg);
+  border-right: 1.5px solid var(--bubble-border);
+  border-bottom: 1.5px solid var(--bubble-border);
+  transform: rotate(45deg);
+}
+.bubble[data-depth]:not([data-depth="0"])::after, .bubble:has(~ .status)::after, .bubble.user::after { display: none; }
+
+/* Older bubbles recede. */
+.bubble[data-depth="1"] { opacity: 0.82; scale: 0.97; }
+.bubble[data-depth="2"] { opacity: 0.62; scale: 0.94; }
+
+/* The user's own words, right-aligned like a chat. */
+.bubble.user {
+  align-self: flex-end;
+  margin-right: 10px;
+  max-width: 230px;
+  font-size: 12.5px;
+  color: #fff;
+  background: linear-gradient(135deg, #9a7bff, #c77dff);
+  border-color: transparent;
+  border-bottom-right-radius: 4px;
+  -webkit-line-clamp: 3;
+}
+
+/* Research answers: Markdown and formulas, scrollable, click to open the full conversation. */
+.bubble.answer {
+  display: block;
+  align-self: stretch;
+  max-width: none;
+  max-height: calc(var(--bubbles-h, 214px) - 46px);
+  overflow-y: auto;
+  white-space: normal;
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 8px 12px 6px;
+}
+.bubble.answer .md > :first-child { margin-top: 0; }
+.bubble.answer .md p { margin: 0.35em 0; }
+.bubble.answer .md h1, .bubble.answer .md h2, .bubble.answer .md h3 { font-size: 1.05em; margin: 0.6em 0 0.3em; }
+.bubble.answer .md ul, .bubble.answer .md ol { margin: 0.3em 0; padding-left: 1.3em; }
+.bubble.answer .md pre { background: #f5f3fb; border-radius: 6px; padding: 6px 8px; overflow-x: auto; font-size: 11px; }
+.bubble.answer .md code { font-family: "SF Mono", Menlo, monospace; font-size: 11px; background: #f5f3fb; border-radius: 3px; padding: 0 3px; }
+.bubble.answer .md table { border-collapse: collapse; font-size: 11.5px; }
+.bubble.answer .md th, .bubble.answer .md td { border: 1px solid #e2dcf2; padding: 2px 6px; }
+.bubble.answer .md .katex-display { overflow-x: auto; overflow-y: hidden; margin: 0.4em 0; }
+.bubble.answer .md a { color: #7a5ae0; }
+.bubble.answer .more { margin-top: 4px; font-size: 11px; color: #8a7bd0; }
+/* Close button; sticky so that it stays in the corner while the answer scrolls. */
+.bubble.answer .close {
+  position: sticky;
+  top: 0;
+  float: right;
+  width: 20px;
+  height: 20px;
+  margin: -2px -4px 0 6px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  line-height: 1;
+  color: #8a7bd0;
+  background: rgba(240, 236, 252, 0.95);
+  cursor: pointer;
+  z-index: 1;
+}
+.bubble.answer .close:hover { background: #e4dcfb; color: #5b3fa0; }
+.bubble.answer.streaming .more { display: none; }
+.bubble.answer::-webkit-scrollbar { width: 5px; }
+.bubble.answer::-webkit-scrollbar-thumb { background: rgba(122, 90, 224, 0.35); border-radius: 3px; }
+
+.bubble.leaving { animation: bubble-out 1.3s ease forwards; pointer-events: none; }
+.bubble.leaving.fast { animation-duration: 0.26s; }
+.bubble.reminder { --bubble-border: #ffb703; --bubble-bg: #fffaf0; }
+.bubble.reminder::before { content: "⏰ "; }
+.bubble.error { --bubble-border: #ff6b6b; color: #8a1f1f; }
+.bubble.status { --bubble-border: #b9a8f0; color: #6a5aa0; font-size: 12px; }
+.bubble.status .dots::after { content: ""; animation: ellipsis 1.2s steps(4) infinite; }
+@keyframes ellipsis { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+@keyframes bubble-in { from { transform: translateY(10px) scale(0.9); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bubble-out { to { transform: translateY(-12px); opacity: 0; } }
+
+/* ---------- Fallback notice ---------- */
+
+#notice {
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: rgba(80, 60, 120, 0.7);
+}
