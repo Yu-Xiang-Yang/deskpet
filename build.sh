@@ -68,8 +68,8 @@ for entry in "en:DeskPet" "zh-Hans:桌宠"; do
 done
 
 if [ ! -f Resources/web/vendor/live2dcubismcore.min.js ]; then
-    echo "Note: Live2D Cubism Core not bundled; the built-in character is used unless the core is placed in"
-    echo "      ~/Library/Application Support/DeskPet/models/ (see README.md)."
+    echo "Note: the Live2D Cubism Core is not bundled; the app loads it from"
+    echo "      ~/Library/Application Support/DeskPet/models/ (install it with scripts/install-live2d.sh, see README.md)."
 fi
 
 # A stable signing identity keeps the Keychain's "Always Allow" valid across rebuilds; an ad-hoc signature

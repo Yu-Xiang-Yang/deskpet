@@ -60,6 +60,6 @@ while read -r sum path url; do
 done <<< "$MANIFEST"
 
 if [ ! -f "$DEST/live2dcubismcore.min.js" ]; then
-    echo "Note: $DEST/live2dcubismcore.min.js is missing; the pet runs with the built-in placeholder character."
+    echo "Note: the Live2D Cubism Core is not in $DEST; install it with scripts/install-live2d.sh (see README.md)."
 fi
 echo "Vendor libraries are up to date."
