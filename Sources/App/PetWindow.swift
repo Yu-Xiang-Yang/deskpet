@@ -126,12 +126,39 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
     }
 
     private func restorePosition() {
-        if !panel.setFrameUsingName("DeskPetPanel"), let area = NSScreen.main?.visibleFrame {
-            let size = scaledSize
-            panel.setFrame(NSRect(x: area.maxX - size.width - 24, y: area.minY, width: size.width, height: size.height), display: false)
+        // The saved frame ends with the frame of its screen; when that display is gone, AppKit would only
+        // nudge the window onto another screen, somewhere in mid-air.
+        let saved = UserDefaults.standard.string(forKey: "NSWindow Frame DeskPetPanel")?
+            .split(separator: " ").compactMap { Double($0) } ?? []
+        let screenPresent = saved.count >= 8 && NSScreen.screens.contains {
+            abs($0.frame.minX - saved[4]) < 1 && abs($0.frame.minY - saved[5]) < 1 && abs($0.frame.width - saved[6]) < 1
         }
-        panel.setFrameAutosaveName("DeskPetPanel")
+        panel.setFrameAutosaveName("DeskPetPanel")  // also applies the saved frame, if any
+        if !screenPresent { moveToMainScreen() }
         applyScale()
+        bringBackIfOffScreen()
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.bringBackIfOffScreen() }
+        }
+    }
+
+    /// The bottom-right corner of the main screen.
+    private func moveToMainScreen() {
+        guard let area = (NSScreen.screens.first ?? NSScreen.main)?.visibleFrame else { return }
+        let size = scaledSize
+        panel.setFrame(NSRect(x: area.maxX - size.width - 24, y: area.minY, width: size.width, height: size.height), display: true)
+    }
+
+    /// After a display was disconnected (or on launch, when the saved position is on a display that is gone),
+    /// a pet whose body is on no screen comes back to the main screen.
+    func bringBackIfOffScreen() {
+        let f = panel.frame
+        let body = NSRect(x: f.midX - f.width * 0.2, y: f.minY, width: f.width * 0.4, height: f.height * 0.4)
+        guard !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(body) }) else { return }
+        cancelHop()
+        moveToMainScreen()
+        panel.saveFrame(usingName: "DeskPetPanel")
     }
 
     /// Only the character scales; the bubble area keeps its size so the text stays readable.
