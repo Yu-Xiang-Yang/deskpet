@@ -57,6 +57,8 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
 
     private var dragStartMouse: NSPoint?
     private var dragStartOrigin = NSPoint.zero
+    /// Bubbles below the character instead of above it (near the top of the screen, where there is no room).
+    private(set) var flipped = UserDefaults.standard.bool(forKey: "petBubblesBelow")
     private(set) var dragging = false
 
     var scale: CGFloat = 1 {
@@ -134,8 +136,7 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
             abs($0.frame.minX - saved[4]) < 1 && abs($0.frame.minY - saved[5]) < 1 && abs($0.frame.width - saved[6]) < 1
         }
         panel.setFrameAutosaveName("DeskPetPanel")  // also applies the saved frame, if any
-        if !screenPresent { moveToMainScreen() }
-        applyScale()
+        if !screenPresent { moveToMainScreen() } else { applyScale() }
         bringBackIfOffScreen()
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
                                                queue: .main) { [weak self] _ in
@@ -146,15 +147,14 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
     /// The bottom-right corner of the main screen.
     private func moveToMainScreen() {
         guard let area = (NSScreen.screens.first ?? NSScreen.main)?.visibleFrame else { return }
-        let size = scaledSize
-        panel.setFrame(NSRect(x: area.maxX - size.width - 24, y: area.minY, width: size.width, height: size.height), display: true)
+        place(NSPoint(x: area.maxX - scaledSize.width - 24, y: area.minY))
     }
 
     /// After a display was disconnected (or on launch, when the saved position is on a display that is gone),
     /// a pet whose body is on no screen comes back to the main screen.
     func bringBackIfOffScreen() {
         let f = panel.frame
-        let body = NSRect(x: f.midX - f.width * 0.2, y: f.minY, width: f.width * 0.4, height: f.height * 0.4)
+        let body = NSRect(x: f.midX - f.width * 0.2, y: characterOrigin.y, width: f.width * 0.4, height: characterHeight * 0.6)
         guard !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(body) }) else { return }
         cancelHop()
         moveToMainScreen()
@@ -178,11 +178,45 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
     /// Resizes around the bottom centre, so the character's feet stay where they were.
     private func applyScale() {
         let size = scaledSize
-        var frame = panel.frame
-        frame.origin.x += (frame.width - size.width) / 2
-        frame.size = size
-        panel.setFrame(clamp(frame), display: true)
+        var origin = characterOrigin
+        origin.x += (panel.frame.width - size.width) / 2
+        place(origin, size: size)
         if ready { webView.call("pet.setScale", .number(Double(scale))) }
+    }
+
+    // MARK: Placement
+    // The window is the character plus a band for the bubbles, normally above the character. Positions are
+    // expressed as the character's origin: the window's left edge and the character's feet.
+
+    private var bubbleBand: CGFloat { bubbles.height + 6 }
+    private var characterHeight: CGFloat { scaledSize.height - bubbleBand }
+
+    /// The window's left edge and the character's feet, in screen coordinates.
+    var characterOrigin: NSPoint {
+        NSPoint(x: panel.frame.minX, y: panel.frame.minY + (flipped ? bubbleBand : 0))
+    }
+
+    /// Moves the character to `origin`, kept on screen: its sides may reach the screen edges, its head the menu
+    /// bar and its feet a little into the Dock. The bubbles go below the character when there is no room above.
+    private func place(_ origin: NSPoint, size: NSSize? = nil) {
+        let size = size ?? scaledSize
+        let charHeight = size.height - bubbleBand
+        let probe = NSPoint(x: origin.x + size.width / 2, y: origin.y + charHeight / 2)
+        let screen = NSScreen.screens.first { $0.frame.contains(probe) } ?? panel.screen ?? NSScreen.main ?? NSScreen.screens[0]
+        let area = screen.frame, visible = screen.visibleFrame
+        // The window is wider than the character: up to the middle of it (less a quarter of the drawn stage)
+        // may overhang the edge, so that the character itself reaches it.
+        let overhang = max(0, size.width / 2 - Self.baseSize.width * scale * 0.25)
+        var o = origin
+        o.x = min(max(o.x, area.minX - overhang), area.maxX - size.width + overhang)
+        o.y = min(max(o.y, area.minY - charHeight * 0.05), visible.maxY - charHeight)
+        let below = o.y + charHeight + bubbleBand > visible.maxY
+        if below != flipped {
+            flipped = below
+            UserDefaults.standard.set(below, forKey: "petBubblesBelow")
+            if ready { webView.call("pet.setBubblesBelow", .bool(below)) }
+        }
+        panel.setFrame(NSRect(x: o.x, y: o.y - (below ? bubbleBand : 0), width: size.width, height: size.height), display: true)
     }
 
     // MARK: JavaScript API
@@ -281,7 +315,7 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
     // MARK: WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        var config: [String: JSON] = ["scale": .number(Double(scale)),
+        var config: [String: JSON] = ["scale": .number(Double(scale)), "below": .bool(flipped),
                                       "layout": [.number(Double(bubbles.width)), .number(Double(bubbles.height))],
                                       "strings": ["more": .string(tr("点击查看完整内容 · 可滚动", "Click for the full answer · scrollable"))]]
         if !PetModel.cubismCoreInstalled {
@@ -417,7 +451,7 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
     func mouseDown(_ event: NSEvent) {
         cancelHop()
         dragStartMouse = NSEvent.mouseLocation
-        dragStartOrigin = panel.frame.origin
+        dragStartOrigin = characterOrigin
         dragging = false
     }
 
@@ -430,9 +464,7 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
             dragging = true
             webView.call("pet.setDragging", .bool(true))
         }
-        var frame = panel.frame
-        frame.origin = NSPoint(x: dragStartOrigin.x + dx, y: dragStartOrigin.y + dy)
-        panel.setFrame(clamp(frame), display: true)
+        place(NSPoint(x: dragStartOrigin.x + dx, y: dragStartOrigin.y + dy))
         delegate?.petDidMove()
     }
 
@@ -462,21 +494,5 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
     func rightMouseDown(_ event: NSEvent, in view: NSView) {
         guard let menu = delegate?.petContextMenu() else { return }
         NSMenu.popUpContextMenu(menu, with: event, for: view)
-    }
-
-    /// Keeps at least the character's body on a screen; the feet may overlap the Dock.
-    private func clamp(_ frame: NSRect) -> NSRect {
-        let center = NSPoint(x: frame.midX, y: frame.midY)
-        let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? NSScreen.main ?? NSScreen.screens[0]
-        let area = screen.frame
-        let visible = screen.visibleFrame
-        var f = frame
-        // With the wide research bubbles the whole window stays on screen; otherwise the transparent
-        // margins beside the character may overhang the edge.
-        let marginX = bubbles.width > Self.chatBubbles.width ? 0 : f.width * 0.3
-        f.origin.x = min(max(f.origin.x, area.minX - marginX), area.maxX - f.width + marginX)
-        // The bubble area at the top of the window stays below the top of the screen.
-        f.origin.y = min(max(f.origin.y, area.minY - f.height * 0.05), visible.maxY - f.height)
-        return f
     }
 }

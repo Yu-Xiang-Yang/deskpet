@@ -561,6 +561,7 @@
       if (cfg.scale) window.pet.setScale(cfg.scale);
       if (cfg.strings) strings = Object.assign(strings, cfg.strings);
       if (cfg.layout) window.pet.setLayout(cfg.layout[0], cfg.layout[1]);
+      window.pet.setBubblesBelow(!!cfg.below);
       let problem = cfg.model ? null : (cfg.missing || "没有找到 Live2D 模型。");
       if (cfg.model) {
         try { await initLive2D(cfg); }
@@ -586,6 +587,8 @@
       play(sleeping ? "sleepy" : "idle");
     },
     setScale(s) { root.style.setProperty("--pet-scale", String(s || 1)); },
+    /** Near the top of the screen the bubbles stack below the character, the newest nearest to it. */
+    setBubblesBelow(on) { root.classList.toggle("bubbles-below", !!on); },
     /** A cat sound (meow.js) for characters whose pet-map.json declares "voice": "cat"; `volume` 0…1. */
     meow(kind, volume) {
       if (!l2d || l2d.map.voice !== "cat" || !window.Meow) return;
