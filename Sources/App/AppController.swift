@@ -567,9 +567,34 @@ enum LegacyDefaults {
     }
 }
 
+/// One pet at a time: when two copies start together (e.g. two login items), the copy in an Applications folder
+/// stays, and between equal candidates the earlier process. Test runs (DESKPET_DIR set) are exempt.
+enum SingleInstance {
+    static func claim() -> Bool {
+        guard ProcessInfo.processInfo.environment["DESKPET_DIR"] == nil, let id = Bundle.main.bundleIdentifier else { return true }
+        let me = NSRunningApplication.current
+        func rank(_ app: NSRunningApplication) -> (Int, pid_t) {
+            ((app.bundleURL?.path.contains("/Applications/") ?? false) ? 0 : 1, app.processIdentifier)
+        }
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: id).filter { $0 != me && !$0.isTerminated }
+        guard let best = others.min(by: { rank($0) < rank($1) }), rank(best) < rank(me) else { return true }
+        NSLog("DeskPet is already running (pid %d); this copy quits", best.processIdentifier)
+        return false
+    }
+}
+
 /// Launch at login through SMAppService (macOS 13+).
 enum LoginItem {
     static var enabled: Bool { SMAppService.mainApp.status == .enabled }
+
+    /// The login item points at the copy that registered it; after the app moved (or a build copy registered
+    /// it), the copy in an Applications folder registers again, so that login starts this copy.
+    static func repairLocation() {
+        let path = Bundle.main.bundlePath
+        guard path.contains("/Applications/"), enabled, UserDefaults.standard.string(forKey: "loginItemPath") != path else { return }
+        try? SMAppService.mainApp.unregister()
+        if (try? SMAppService.mainApp.register()) != nil { UserDefaults.standard.set(path, forKey: "loginItemPath") }
+    }
 
     static func set(_ on: Bool) -> Bool {
         do {

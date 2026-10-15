@@ -91,5 +91,9 @@ if [ "${1:-}" = "install" ]; then
     rm -rf "$DEST/DeskPet.app"
     cp -R "$APP" "$DEST/"
     codesign --verify --deep --strict "$DEST/DeskPet.app" && echo "Signature verified"
+    # Only one copy per bundle identifier: macOS (login items, Launch Services) could otherwise pick the build copy.
+    LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+    "$LSREGISTER" -u "$APP" 2>/dev/null || true
+    rm -rf "$APP"
     echo "Installed to $DEST/DeskPet.app"
 fi
