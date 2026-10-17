@@ -389,6 +389,29 @@
   }
   setInterval(computeMask, 200);
 
+  // Distance from the bottom of the stage up to the lowest drawn pixel (the paws), so that the native shell
+  // can put the feet exactly on a window edge; models leave a transparent margin below the character.
+  const feetProbe = document.createElement("canvas");
+  const feetCtx = feetProbe.getContext("2d", { willReadFrequently: true });
+  let lastFeet = null;
+  function measureFeet() {
+    if (!l2d) return;
+    const cr = canvas.getBoundingClientRect();
+    const k = 3, w = Math.max(1, Math.ceil(cr.width / k)), h = Math.max(1, Math.ceil(cr.height / k));
+    feetProbe.width = w;
+    feetProbe.height = h;
+    try { feetCtx.drawImage(canvas, 0, 0, w, h); } catch (_) { return; }
+    const data = feetCtx.getImageData(0, 0, w, h).data;
+    let row = -1;
+    for (let y = h - 1; y >= 0 && row < 0; y--) {
+      for (let x = 0; x < w; x++) if (data[(y * w + x) * 4 + 3] > 40) { row = y; break; }
+    }
+    if (row < 0) return;
+    const gap = Math.max(0, Math.round(stage.getBoundingClientRect().bottom - (cr.top + (row + 1) * cr.height / h)));
+    if (gap !== lastFeet) { lastFeet = gap; native("feet", { gap }); }
+  }
+  setInterval(measureFeet, 2000);
+
   // ---------------------------------------------------------------- Live2D
 
   function loadScript(src) {

@@ -8,6 +8,8 @@ protocol PetWindowDelegate: AnyObject {
     func petDidClick(area: String, clickCount: Int)
     func petContextMenu() -> NSMenu
     func petDidMove()
+    /// The owner let go of the pet after dragging it.
+    func petDidDrop()
     func petAnswersCleared()
 }
 
@@ -189,7 +191,11 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
     // expressed as the character's origin: the window's left edge and the character's feet.
 
     private var bubbleBand: CGFloat { bubbles.height + 6 }
-    private var characterHeight: CGFloat { scaledSize.height - bubbleBand }
+    var characterHeight: CGFloat { scaledSize.height - bubbleBand }
+    /// Points between the bottom of the stage and the character's paws (transparent margin of the model).
+    private(set) var feetGap: CGFloat = 0
+    /// Width of the drawn character stage (the body itself is about half of it).
+    var stageWidth: CGFloat { Self.baseSize.width * scale }
 
     /// The window's left edge and the character's feet, in screen coordinates.
     var characterOrigin: NSPoint {
@@ -303,6 +309,8 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
             maskRows = body["rows"] as? Int ?? 0
             maskCell = CGFloat(body["cell"] as? Int ?? 10)
             mask = bits.map { $0 == "1" }
+        case "feet":
+            feetGap = CGFloat(body["gap"] as? Double ?? Double(body["gap"] as? Int ?? 0))
         case "answersCleared":
             delegate?.petAnswersCleared()
         case "log":
@@ -439,6 +447,78 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
         }
     }
 
+    /// Jumps along an arc so that the character's origin (window left, feet) lands on `target`: up onto a
+    /// window, down to the floor or across to another window.
+    func leap(to target: NSPoint, completion: (() -> Void)? = nil) {
+        guard !hopping, !dragging, ready else { return }
+        hopping = true
+        let start = characterOrigin
+        let dx = target.x - start.x, dy = target.y - start.y
+        let band = flipped ? bubbles.height + 6 : 0
+        // Upwards the arc rises above the target; downwards it is a small hop and then a drop.
+        let height = (dy > 0 ? dy * 0.3 + 46 : 40) * max(scale, 0.5)
+        let duration = 0.42 + Double(hypot(dx, dy)) / 1500
+        webView.call("pet.hop", "crouch")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self, self.hopping else { return }
+            self.webView.call("pet.hop", "air")
+            let begin = CACurrentMediaTime()
+            let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] t in
+                guard let self, self.hopping else { t.invalidate(); return }
+                let p = CGFloat(min(1, (CACurrentMediaTime() - begin) / duration))
+                let x = start.x + dx * p
+                let y = start.y + dy * p + height * 4 * p * (1 - p)
+                self.panel.setFrameOrigin(NSPoint(x: x.rounded(), y: (y - band).rounded()))
+                guard p >= 1 else { return }
+                t.invalidate()
+                self.land(at: target, completion: completion)
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            self.hopTimer = timer
+        }
+    }
+
+    /// Falls straight down (accelerating) until the feet reach `floorY`, e.g. when the window below went away.
+    func fall(to floorY: CGFloat, completion: (() -> Void)? = nil) {
+        guard !dragging, ready else { return }
+        cancelHop()
+        hopping = true
+        let start = characterOrigin
+        let band = flipped ? bubbles.height + 6 : 0
+        let gravity: CGFloat = 2600  // pt/s²
+        let begin = CACurrentMediaTime()
+        webView.call("pet.hop", "air")
+        webView.call("pet.play", "surprised")
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] t in
+            guard let self, self.hopping else { t.invalidate(); return }
+            let elapsed = CGFloat(CACurrentMediaTime() - begin)
+            let y = max(floorY, start.y - gravity * elapsed * elapsed / 2)
+            self.panel.setFrameOrigin(NSPoint(x: start.x.rounded(), y: (y - band).rounded()))
+            guard y <= floorY else { return }
+            t.invalidate()
+            self.land(at: NSPoint(x: start.x, y: floorY), completion: completion)
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        hopTimer = timer
+    }
+
+    private func land(at origin: NSPoint, completion: (() -> Void)?) {
+        webView.call("pet.hop", "land")
+        place(origin)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) { [weak self] in
+            guard let self, self.hopping else { return }
+            self.hopping = false
+            self.panel.saveFrame(usingName: "DeskPetPanel")
+            completion?()
+        }
+    }
+
+    /// Moves the character without animation (riding on a window that is being moved).
+    func shift(to origin: NSPoint) {
+        guard !hopping, !dragging else { return }
+        place(origin)
+    }
+
     func cancelHop() {
         guard hopping else { return }
         hopping = false
@@ -474,6 +554,7 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
             dragging = false
             webView.call("pet.setDragging", .bool(false))
             panel.saveFrame(usingName: "DeskPetPanel")
+            delegate?.petDidDrop()
             return
         }
         let p = pagePoint(NSEvent.mouseLocation)

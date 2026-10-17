@@ -27,6 +27,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private lazy var hotKey = GlobalHotKey { [weak self] in self?.toggleChatFromHotKey() }
     private var wanderTimer: Timer?
     private lazy var mischief = Mischief(pet: pet)
+    private lazy var climber = Climber(pet: pet)
     private let music = MusicMonitor()
     private var lastMusicRemark = Date.distantPast
     private var nextWander = Date.distantFuture
@@ -62,7 +63,10 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         settingsWindow.onCheckWeather = { [weak self] report in self?.weather.check(force: true, report: report) }
 
         settings.$petScale.dropFirst().removeDuplicates().sink { [weak self] in self?.pet.scale = CGFloat($0) }.store(in: &subscriptions)
-        settings.$petLayer.dropFirst().sink { [weak self] in self?.pet.setLayer($0) }.store(in: &subscriptions)
+        settings.$petLayer.dropFirst().sink { [weak self] layer in
+            self?.pet.setLayer(layer)
+            if layer != .top { self?.climber.jumpDown() }  // on a window it would be hidden behind other windows
+        }.store(in: &subscriptions)
         settings.$hotKey.removeDuplicates().sink { [weak self] preset in
             if self?.hotKey.register(preset) == false { NSLog("Hot key %@ is not available", preset.title) }
         }.store(in: &subscriptions)
@@ -81,6 +85,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         settings.$wander.removeDuplicates().sink { [weak self] level in self?.scheduleWander(level) }.store(in: &subscriptions)
         mischief.canAct = { [weak self] in self?.mayActOnItsOwn ?? false }
         mischief.reallyAsleep = { [weak self] in self?.brain.sleeping ?? false }
+        mischief.perched = { [weak self] in self?.climber.ledge != nil }
         mischief.canJoke = { [weak self] in
             guard let self else { return false }
             return self.pet.panel.isVisible && !self.researchMode && !self.chatPanel.isVisible && !self.brain.sleeping
@@ -118,6 +123,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         if !greeted {
             greeted = true
             brain.greet()
+            climber.ownerDropped()  // still standing on the window where it was left?
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.runDailyTasksIfDue() }
         }
     }
@@ -135,7 +141,12 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }
     }
 
-    func petDidMove() { mischief.ownerMoved() }
+    func petDidMove() {
+        mischief.ownerMoved()
+        climber.ownerMoved()
+    }
+
+    func petDidDrop() { climber.ownerDropped() }
 
     func petContextMenu() -> NSMenu {
         let menu = NSMenu()
@@ -343,6 +354,8 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
                 else if command == "daily" { self.runDailyTasks() }
                 else if command.hasPrefix("mischief:") { self.mischief.trigger(String(command.dropFirst(9))) }
                 else if command == "pat" { self.petDidClick(area: "head", clickCount: 1) }
+                else if command == "climb" { self.climber.climbNow() }
+                else if command == "down" { self.climber.jumpDown() }
                 else if command.hasPrefix("meow:") { self.pet.meow(MeowKind(rawValue: String(command.dropFirst(5))) ?? .meow) }
             }
         }
@@ -445,8 +458,9 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
 
     /// Hops to a random spot on the same screen, 160–520 pt away.
     private func wander() {
-        guard pet.panel.isVisible, !pet.hopping, !pet.dragging,
-              let area = (pet.panel.screen ?? NSScreen.main)?.visibleFrame else { return }
+        guard pet.panel.isVisible, !pet.hopping, !pet.dragging else { return }
+        if climber.wander() { return }  // up onto a window, along it, or back down
+        guard let area = (pet.panel.screen ?? NSScreen.main)?.visibleFrame else { return }
         let frame = pet.panel.frame
         // The window is wider than the character, so it may overhang the screen edge a little.
         let minX = area.minX - frame.width * 0.25, maxX = area.maxX - frame.width * 0.75

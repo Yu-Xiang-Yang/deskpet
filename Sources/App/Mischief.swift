@@ -10,6 +10,8 @@ final class Mischief {
     private unowned let pet: PetWindowController
     /// Whether the pet may act on its own right now (visible, not in research mode, chat box closed, …).
     var canAct: () -> Bool = { false }
+    /// Whether the pet stands on a window: then it only pretends to sleep (running off would make it fall).
+    var perched: () -> Bool = { false }
     /// Whether the pet is really asleep (the owner is away), as opposed to pretending.
     var reallyAsleep: () -> Bool = { false }
 
@@ -126,7 +128,7 @@ final class Mischief {
                 return
             }
             next = now.addingTimeInterval(.random(in: Self.interval))
-            switch Int.random(in: 0..<3) {
+            switch perched() ? 0 : Int.random(in: 0..<3) {
             case 0: startFakeSleep()
             case 1: startPeek()
             default: sneakToPointer()
