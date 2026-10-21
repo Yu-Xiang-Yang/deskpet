@@ -37,7 +37,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private var screenLocked = false
     private var returnWork: DispatchWorkItem?
     /// Shorter absences (a display that only dimmed for a moment) do not replay the intro.
-    static let minimumAway: TimeInterval = 30
+    static let minimumAway: TimeInterval = 10
     private var petReady = false
     private let music = MusicMonitor()
     private var lastMusicRemark = Date.distantPast
