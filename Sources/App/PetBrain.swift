@@ -242,6 +242,28 @@ final class PetBrain {
         pet.meow(.meow)
     }
 
+    /// The first words after the login intro: the AI reporting for duty, with a word for the time of day.
+    func welcomeBack() {
+        let name = settings.petName.trimmingCharacters(in: .whitespaces).isEmpty ? "DeskPet" : settings.petName
+        let called = settings.userName.trimmingCharacters(in: .whitespaces)
+        let user = called.isEmpty ? NSFullUserName().split(separator: " ").first.map(String.init) ?? NSUserName() : called
+        let hour = Calendar.current.component(.hour, from: Date())
+        let opening = [tr("您好，\(user)。\(name) AI 已上线，欢迎回来。", "Hello, \(user). \(name) AI is online. Welcome back."),
+                       tr("\(name) AI 启动完毕，各项系统运转正常。\(user)，欢迎回来。", "\(name) AI is up and all systems are nominal. Welcome back, \(user).")]
+            .randomElement()!
+        let note: String
+        switch hour {
+        case 5..<11: note = tr("早上好，今天的提醒与日程已就绪。", "Good morning; today's reminders and schedule are ready.")
+        case 11..<14: note = tr("现在是午间，记得按时用餐。", "It's midday; remember to eat on time.")
+        case 14..<18: note = tr("下午的工作时段已开启，我随时待命。", "The afternoon session is open; I'm standing by.")
+        case 18..<23: note = tr("今天辛苦了，晚间的事务可以交给我。", "Long day. Hand the evening's chores to me.")
+        default: note = tr("夜已深，建议尽早休息。", "It's late; I suggest getting some rest soon.")
+        }
+        pet.play(.wave)
+        pet.say(opening + note, ms: 12000)
+        pet.meow(.meow)
+    }
+
     /// Reminder delivery: local wording, optionally rephrased by the model in the persona's voice.
     func remind(_ text: String, motion: PetMotion) {
         wake()

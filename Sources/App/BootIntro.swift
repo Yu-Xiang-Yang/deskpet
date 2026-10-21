@@ -9,6 +9,8 @@ final class BootIntro: NSObject, WKScriptMessageHandler {
     private var finishing = false
     private var monitor: Any?
     private var completion: (() -> Void)?
+    /// Whether the intro has played since the app started.
+    private(set) var playedThisLaunch = false
 
     static let hardTimeout: TimeInterval = 12
 
@@ -30,6 +32,7 @@ final class BootIntro: NSObject, WKScriptMessageHandler {
 
     func play(completion: @escaping () -> Void) {
         guard windows.isEmpty else { return }
+        playedThisLaunch = true
         self.completion = completion
         var comps = URLComponents(url: AppSchemeHandler.url("web/intro.html"), resolvingAgainstBaseURL: false)!
         comps.queryItems = Self.systemInfo().map { URLQueryItem(name: $0.key, value: $0.value) }

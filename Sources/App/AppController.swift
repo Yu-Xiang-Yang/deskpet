@@ -133,7 +133,8 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         petReady = true
         if !greeted, !introPlaying {
             greeted = true
-            brain.greet()
+            // Right after the login intro the pet reports for duty; otherwise an ordinary hello.
+            if bootIntro.playedThisLaunch { brain.welcomeBack() } else { brain.greet() }
             climber.ownerDropped()  // still standing on the window where it was left?
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.runDailyTasksIfDue() }
         }
@@ -147,9 +148,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         bootIntro.play { [weak self] in
             guard let self else { return }
             self.introPlaying = false
-            self.pet.play(.wave)
-            self.pet.meow(.meow)
-            if self.petReady { self.petDidBecomeReady(mode: "") }
+            if self.petReady, !self.greeted { self.petDidBecomeReady(mode: "") } else { self.brain.welcomeBack() }
         }
     }
 
