@@ -138,7 +138,7 @@ final class BootIntro: NSObject, WKScriptMessageHandler {
     }
 
     /// "墨笃" → "MODU": the name in Latin capitals for the large title (Chinese via pinyin, without tones).
-    private static func latinCapitals(_ name: String) -> String {
+    static func latinCapitals(_ name: String) -> String {
         let latin = name.applyingTransform(.toLatin, reverse: false)?.applyingTransform(.stripDiacritics, reverse: false) ?? name
         let letters = latin.uppercased().filter { $0.isLetter || $0.isNumber || $0 == " " }
         let compact = name.unicodeScalars.allSatisfy(\.isASCII) ? letters : letters.replacingOccurrences(of: " ", with: "")

@@ -115,6 +115,20 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
 
         installTestHooks()
         observeReturns()
+
+        // The screen saver: keep an installed copy current, and give it fresh names and tasks every minute.
+        SaverInstaller.updateIfInstalled()
+        Standby.write(nextNote: reminders.nextNote)
+        let standby = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { Standby.write(nextNote: self?.reminders.nextNote) }
+        }
+        RunLoop.main.add(standby, forMode: .common)
+        settingsWindow.onInstallSaver = { [weak self] in
+            Standby.write(nextNote: self?.reminders.nextNote)
+            return SaverInstaller.install()
+                ? tr("已安装。请在“系统设置 → 屏幕保护程序”中选择 DeskPet。", "Installed. Choose DeskPet under System Settings → Screen Saver.")
+                : tr("这个版本没有附带屏保，请用 build.sh 重新构建。", "This build has no screen saver; rebuild with build.sh.")
+        }
         if BootIntro.dueThisBoot, ProcessInfo.processInfo.environment["DESKPET_DIR"] == nil {
             BootIntro.markPlayedThisBoot()
             playIntro()

@@ -31,7 +31,7 @@ const INFO = {
   lang: Q.get('lang') || 'zh',
 };
 const ZH = INFO.lang.startsWith('zh');
-let STYLE = (Q.get('style') || 'a').toLowerCase();
+let STYLE = (Q.get('style') || 'c').toLowerCase();
 let LOCK = Q.has('lock');
 const TASKS = (() => { try { return JSON.parse(Q.get('log') || '[]'); } catch (_) { return []; } })();
 
@@ -136,7 +136,9 @@ function coreNeural(t, cy) {
 const DEFAULT_TASKS = ZH
   ? ['提醒调度：监控中', '记忆库：已封存', '网络链路：稳定', '天气监测：待命', '扇区巡检：无异常', '等待操作员返回']
   : ['Reminder scheduler: watching', 'Memory bank: sealed', 'Network link: stable', 'Weather watch: armed', 'Sector sweep: no anomalies', 'Awaiting operator'];
-const SOURCE = TASKS.length ? TASKS : DEFAULT_TASKS;
+let SOURCE = TASKS.length ? TASKS : DEFAULT_TASKS;
+// The screen saver bundle pushes a fresh task list (from DeskPet's standby.json) every minute.
+window.DeskPetSaver = { setTasks(list) { if (Array.isArray(list) && list.length) SOURCE = list.map(String); } };
 const log = [];
 let nextLog = 0, cursor = 0;
 function pushLog(t) {

@@ -54,11 +54,46 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# The screen saver (DeskPet.saver), bundled in the app and installed from its settings.
+SAVER="build/DeskPet.saver"
+rm -rf "$SAVER"
+mkdir -p "$SAVER/Contents/MacOS" "$SAVER/Contents/Resources"
+SAVER_SLICES=()
+for arch in $ARCHS; do
+    swiftc -O -swift-version 5 -sdk "$SDK" -target "$arch-apple-macos14.0" \
+        -parse-as-library -emit-library -module-name DeskPetSaver \
+        ScreenSaver/*.swift -framework ScreenSaver -framework WebKit \
+        -o "$SAVER/Contents/MacOS/DeskPetSaver-$arch"
+    SAVER_SLICES+=("$SAVER/Contents/MacOS/DeskPetSaver-$arch")
+done
+lipo -create "${SAVER_SLICES[@]}" -output "$SAVER/Contents/MacOS/DeskPetSaver"
+rm -f "${SAVER_SLICES[@]}"
+cat > "$SAVER/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key><string>io.github.yu-xiang-yang.deskpet.saver</string>
+    <key>CFBundleName</key><string>DeskPet</string>
+    <key>CFBundleDisplayName</key><string>DeskPet</string>
+    <key>CFBundleExecutable</key><string>DeskPetSaver</string>
+    <key>CFBundlePackageType</key><string>BNDL</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
+    <key>CFBundleVersion</key><string>$VERSION</string>
+    <key>NSPrincipalClass</key><string>DeskPetSaverView</string>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
+</dict>
+</plist>
+PLIST
+cp Resources/saver/saver.html "$SAVER/Contents/Resources/saver.html"
+codesign --force --sign - "$SAVER" >/dev/null 2>&1 || true
+
 # Web front end, bundled models and the icon.
 cp -R Resources/web "$APP/Contents/Resources/web"
 mkdir -p "$APP/Contents/Resources/models"
 find Resources/models -mindepth 1 -maxdepth 1 -type d -exec cp -R {} "$APP/Contents/Resources/models/" \;
 [ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+cp -R "$SAVER" "$APP/Contents/Resources/DeskPet.saver"
 
 for entry in "en:DeskPet" "zh-Hans:桌宠"; do
     lang="${entry%%:*}"; name="${entry#*:}"

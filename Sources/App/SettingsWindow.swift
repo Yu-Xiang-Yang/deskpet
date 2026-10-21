@@ -8,6 +8,7 @@ final class SettingsWindowController {
     var onRunDailyTasks: (() -> Void)?
     var onCheckWeather: ((@escaping (String) -> Void) -> Void)?
     var onPreviewMeow: (() -> Void)?
+    var onInstallSaver: (() -> String)?
 
     func show(tab: SettingsView.Tab = .general) {
         if window == nil {
@@ -17,7 +18,8 @@ final class SettingsWindowController {
                 onTestReminders: { [weak self] in self?.onTestReminders?() },
                 onRunDailyTasks: { [weak self] in self?.onRunDailyTasks?() },
                 onCheckWeather: { [weak self] report in self?.onCheckWeather?(report) },
-                onPreviewMeow: { [weak self] in self?.onPreviewMeow?() }))
+                onPreviewMeow: { [weak self] in self?.onPreviewMeow?() },
+                onInstallSaver: { [weak self] in self?.onInstallSaver?() ?? "" }))
             let w = NSWindow(contentViewController: hosting)
             w.title = tr("桌宠设置", "DeskPet Settings")
             w.styleMask = [.titled, .closable, .miniaturizable]
@@ -40,6 +42,8 @@ struct SettingsView: View {
     var onRunDailyTasks: () -> Void
     var onCheckWeather: (@escaping (String) -> Void) -> Void
     var onPreviewMeow: () -> Void
+    var onInstallSaver: () -> String
+    @State private var saverResult = ""
 
     @ObservedObject private var memory = MemoryStore.shared
     @State private var newMemory = ""
@@ -162,6 +166,13 @@ struct SettingsView: View {
                 Toggle(tr("熄屏、锁屏或屏保结束后也播放", "Also after the display slept, the screen was locked or the screen saver ran"),
                        isOn: $settings.introOnReturn)
                     .disabled(!settings.bootIntro)
+                HStack {
+                    Button(tr("安装 / 更新屏保", "Install / update screen saver")) { saverResult = onInstallSaver() }
+                    Text(saverResult).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+                Text(tr("屏保与开机动画同一风格：桌宠 AI 待命画面，时钟和头像位置与锁屏对齐，显示任务日志与系统状态。",
+                        "The screen saver matches the intro: the pet AI on standby, clock and user picture aligned with the lock screen, with a task log and system status."))
+                    .font(.caption).foregroundStyle(.secondary)
                 Toggle(tr("登录时启动", "Launch at login"), isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, on in
                         if !LoginItem.set(on) { launchAtLogin = LoginItem.enabled }

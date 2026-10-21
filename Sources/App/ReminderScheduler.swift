@@ -50,6 +50,9 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
 
     var focusRunning: Bool { state.pending.contains { $0.kind == "focusEnd" || $0.kind == "breakEnd" } }
 
+    /// The earliest one-off reminder still to come (for the screen saver's task log).
+    var nextNote: PendingNote? { state.pending.min { $0.due < $1.due } }
+
     func startFocus(minutes: Int = 25) {
         stopFocus()
         add(minutes: minutes, text: tr("专注时间结束，休息 5 分钟吧～", "Focus session done. Take a 5-minute break~"), kind: "focusEnd")
