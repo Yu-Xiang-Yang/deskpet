@@ -60,6 +60,8 @@ struct PetReply: Codable, Equatable {
     var openApp: String? = nil
     /// A calendar event to add (after the owner confirms), or nil.
     var addEvent: EventRequest? = nil
+    /// A task for the executing agent (files, commands, multi-step work), in the owner's words, or nil.
+    var agentTask: String? = nil
 
     /// JSON Schema for structured outputs. Every object sets `additionalProperties: false`,
     /// and numerical constraints are omitted because structured outputs do not support them.
@@ -67,7 +69,7 @@ struct PetReply: Codable, Equatable {
         [
             "type": "object",
             "additionalProperties": false,
-            "required": ["reply", "motion", "remind", "weather_city", "remember", "forget", "open_app", "add_event"],
+            "required": ["reply", "motion", "remind", "weather_city", "remember", "forget", "open_app", "add_event", "agent_task"],
             "properties": [
                 "reply": ["type": "string", "description": "What the pet says, at most about 60 characters."],
                 "motion": ["type": "string", "enum": .array(PetMotion.allCases.map { .string($0.rawValue) })],
@@ -118,6 +120,10 @@ struct PetReply: Codable, Equatable {
                         ],
                     ],
                 ],
+                "agent_task": [
+                    "anyOf": [["type": "null"], ["type": "string"]],
+                    "description": "A task for the executing agent (files, commands, multi-step work on the Mac); null otherwise.",
+                ],
             ],
         ]
     }
@@ -147,7 +153,8 @@ struct PetReply: Codable, Equatable {
                                      allDay: e["all_day"]?.bool ?? false)
             }
             return PetReply(reply: reply, motion: motion, remind: remind, weatherCity: text("weather_city"),
-                            remember: text("remember"), forget: text("forget"), openApp: text("open_app"), addEvent: event)
+                            remember: text("remember"), forget: text("forget"), openApp: text("open_app"), addEvent: event,
+                            agentTask: text("agent_task"))
         }
         return PetReply(reply: text.isEmpty ? "……" : text, motion: .idle, remind: nil)
     }

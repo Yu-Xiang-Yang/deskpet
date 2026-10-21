@@ -19,6 +19,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private let settingsWindow = SettingsWindowController()
     private let chatPanel = ChatInputPanel()
     private let approval = ApprovalPanel()
+    private let agent = DshAgent()
     private var statusItem: NSStatusItem?
 
     /// In research mode the chat box asks the research assistant; answers appear as the pet's bubbles.
@@ -60,6 +61,12 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             AppLauncher.open(name) { self?.pet.say($0, kind: "memory") }
         }
         brain.onAddEvent = { [weak self] request in self?.confirmEvent(request) }
+        brain.onAgentTask = { [weak self] task in self?.confirmAgentTask(task) }
+        agent.onStatus = { [weak self] status in self?.pet.setStatus(status) }
+        agent.ask = { [weak self] text, done in
+            guard let self else { done(false); return }
+            self.approval.ask(text, below: self.pet.panel, done: done)
+        }
         brain.start()
         reminders.start()
         weather.start()
@@ -74,7 +81,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             guard let self else { return }
             if self.researchMode { self.askResearch(text) } else { self.brain.chat(text) }
         }
-        research.onDailyMessage = { [weak self] text in self?.brain.chat(text) }
+        research.onDailyMessage = { [weak self] text in self?.brain.chat(text, fromOwner: false) }
 
         settingsWindow.onModelChange = { [weak self] in
             guard let self else { return }
@@ -238,6 +245,24 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         if CalendarWatcher.authorized { ask() } else { calendar.requestAccess { granted in
             if granted { ask() } else { self.pet.say(CalendarWatcher.statusText, kind: "error") }
         } }
+    }
+
+    /// Every agent task is confirmed first (Return allows); the agent's own approval requests come later.
+    private func confirmAgentTask(_ task: String) {
+        let text = tr("交给执行代理：\(task)\n工作目录：~/Documents/DeskPet", "For the agent: \(task)\nWorkspace: ~/Documents/DeskPet")
+        approval.ask(text, below: pet.panel) { [weak self] yes in
+            guard let self else { return }
+            guard yes else { self.pet.say(tr("好的，这个任务先不做。", "OK, I'll leave that task."), kind: "memory"); return }
+            Task { @MainActor in
+                do {
+                    let report = try await self.agent.run(task)
+                    self.brain.agentFinished(task: task, report: report)
+                } catch {
+                    self.pet.play(.sad)
+                    self.pet.say(error.localizedDescription, kind: "error")
+                }
+            }
+        }
     }
 
     /// The login intro on every screen; afterwards the pet waves, meows and says hello.

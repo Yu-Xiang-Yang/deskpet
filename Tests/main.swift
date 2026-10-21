@@ -264,7 +264,10 @@ do {
     check(n.weatherCity == nil, "PetReply null weather_city")
     let schemaFields = PetReply.schema["required"]?.array?.compactMap(\.string) ?? []
     check(schemaFields.contains("weather_city"), "Schema requires weather_city")
-    check(schemaFields.contains("open_app") && schemaFields.contains("add_event"), "Schema requires open_app and add_event")
+    check(schemaFields.contains("open_app") && schemaFields.contains("add_event") && schemaFields.contains("agent_task"),
+          "Schema requires open_app, add_event and agent_task")
+    let job = PetReply.parse(#"{"reply":"确认后我就去办","motion":"nod","agent_task":"在工作目录新建 todo.md","open_app":null}"#)
+    check(job.agentTask == "在工作目录新建 todo.md" && job.openApp == nil, "PetReply agent_task")
     let app = PetReply.parse(#"{"reply":"好","motion":"nod","open_app":" 微信 ","add_event":null}"#)
     check(app.openApp == "微信" && app.addEvent == nil, "PetReply open_app")
     let ev = PetReply.parse(#"{"reply":"确认一下","motion":"nod","open_app":null,"add_event":{"title":"组会","start":"2026-10-22 15:00","end":null,"location":" ","all_day":false}}"#)

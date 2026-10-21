@@ -1,10 +1,13 @@
 import AppKit
 
-/// A small card below the pet that asks the owner to allow one action ("Add to Calendar: …"). It does not take the
-/// focus from the current app. Nobody answering within the time-out counts as a refusal, and so does a request
-/// while the owner is away from the Mac.
+/// A small card below the pet that asks the owner to allow one action ("Add to Calendar: …"). It takes the keyboard
+/// without activating the app: Return allows, Escape denies (keys are ignored for a moment after it appears, so that
+/// a Return meant for another app does not answer it). Nobody answering within the time-out counts as a refusal, and
+/// so does a request while the owner is away from the Mac.
 final class ApprovalPanel: NSPanel {
     static let timeout: TimeInterval = 120
+    /// Keys and clicks within this time after the card appears are ignored.
+    static let settle: TimeInterval = 0.6
 
     private let label = NSTextField(wrappingLabelWithString: "")
     private let allow = NSButton(title: tr("允许", "Allow"), target: nil, action: nil)
@@ -13,12 +16,13 @@ final class ApprovalPanel: NSPanel {
     private var current: ((Bool) -> Void)?
     private var timer: Timer?
     private weak var anchor: NSWindow?
+    private var shownAt = Date.distantPast
 
     override var canBecomeKey: Bool { true }  // a non-activating panel: the current app stays active
     override var canBecomeMain: Bool { false }
 
     init() {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 300, height: 96),
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 320, height: 124),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isOpaque = false
         backgroundColor = .clear
@@ -28,7 +32,7 @@ final class ApprovalPanel: NSPanel {
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        let background = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 300, height: 96))
+        let background = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 320, height: 124))
         background.material = .popover
         background.blendingMode = .behindWindow
         background.state = .active
@@ -39,12 +43,13 @@ final class ApprovalPanel: NSPanel {
         background.layer?.borderColor = NSColor(calibratedRed: 0.79, green: 0.64, blue: 0.36, alpha: 0.8).cgColor
 
         label.font = .systemFont(ofSize: 12.5)
-        label.maximumNumberOfLines = 4
+        label.maximumNumberOfLines = 5
         allow.bezelStyle = .rounded
         allow.keyEquivalent = "\r"
         allow.target = self
         allow.action = #selector(allowed)
         deny.bezelStyle = .rounded
+        deny.keyEquivalent = "\u{1b}"  // Escape
         deny.target = self
         deny.action = #selector(denied)
 
@@ -76,7 +81,7 @@ final class ApprovalPanel: NSPanel {
         guard !pending.isEmpty, let anchor else { return }
         let next = pending.removeFirst()
         current = next.done
-        label.stringValue = next.text
+        label.stringValue = next.text + tr("\n⏎ 允许 · esc 拒绝", "\n⏎ allow · esc deny")
         let a = anchor.frame
         var origin = NSPoint(x: a.midX - frame.width / 2, y: a.minY - frame.height - 4)
         if let visible = (anchor.screen ?? NSScreen.main)?.visibleFrame {
@@ -85,13 +90,16 @@ final class ApprovalPanel: NSPanel {
         }
         setFrameOrigin(origin)
         if parent == nil { anchor.addChildWindow(self, ordered: .above) }
-        orderFrontRegardless()
+        shownAt = Date()
+        makeKeyAndOrderFront(nil)
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: Self.timeout, repeats: false) { [weak self] _ in self?.answer(false) }
     }
 
-    @objc private func allowed() { answer(true) }
-    @objc private func denied() { answer(false) }
+    @objc private func allowed() { if settled { answer(true) } }
+    @objc private func denied() { if settled { answer(false) } }
+    override func cancelOperation(_ sender: Any?) { denied() }
+    private var settled: Bool { current != nil && Date().timeIntervalSince(shownAt) >= Self.settle }
 
     private func answer(_ yes: Bool) {
         timer?.invalidate()
