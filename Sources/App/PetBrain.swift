@@ -36,6 +36,44 @@ final class PetBrain {
 
     // MARK: Prompt
 
+    /// What the pet can do, with the owner's current settings, so that it can answer "what can you do" and point
+    /// to the right place instead of promising what it cannot.
+    var capabilitySection: String {
+        func on(_ flag: Bool) -> String { flag ? "已开启" : "已关闭" }
+        let r = settings.reminders
+        var routines: [String] = []
+        if r.mealsEnabled { routines.append("吃饭（\(r.mealTimes.joined(separator: "、"))）") }
+        if r.workEnabled { routines.append("上下班（\(r.workStart)–\(r.workEnd)\(r.weekdaysOnly ? "，仅工作日" : "")）") }
+        if r.sedentaryEnabled { routines.append("久坐（每 \(r.sedentaryMinutes) 分钟）") }
+        if r.waterEnabled { routines.append("喝水（每 \(r.waterMinutes) 分钟）") }
+        let mode = settings.researchModeName.trimmingCharacters(in: .whitespaces)
+        let research = mode.isEmpty ? "科研模式" : "科研模式「\(mode)」"
+        let city = settings.city.trimmingCharacters(in: .whitespaces)
+        let tasks = settings.dailyTaskList
+        let routineText: String = routines.isEmpty ? "当前均已关闭" : routines.joined(separator: "；")
+        let cityText: String = city.isEmpty ? "（尚未在“设置 → 主人信息”中填写城市）" : "（\(city)）"
+        let calendarText: String = settings.calendarInChat ? "今明两天的日程附在上下文中。" : "日程不附在对话上下文中（可在设置中开启）。"
+        let taskText: String = tasks.isEmpty ? "（当前没有任务）" : "：" + tasks.joined(separator: "；")
+        let chatterText: String = settings.chatterMinutes == 0 ? "已关闭" : "每 \(settings.chatterMinutes) 分钟一次"
+        var lines: [String] = [
+            "- 对话：主人点击你的身体或按全局快捷键（\(settings.hotKey.title)）打开输入框与你聊天；你以气泡回复并做出动作。",
+            "- 一次性提醒：主人说“X 分钟后提醒我……”时由你经 remind 字段设定，到时以气泡与系统通知提醒，通知上可“10 分钟后再提醒”。",
+            "- 作息提醒（设置 → 提醒）：\(routineText)。",
+            "- 专注计时：右键菜单“开始专注 25 分钟”，结束后提醒休息 5 分钟。",
+            "- 天气：上下文附带主人所在地天气；可经 weather_city 查询其它城市。天气变化提醒\(on(settings.weatherAlerts))\(cityText)。",
+            "- 日历日程提醒\(on(settings.calendarAlerts))：读取系统“日历”App，每天首次见面时播报当天日程，带时间的日程提前 \(settings.calendarLeadMinutes) 分钟提醒；\(calendarText)",
+            "- 记忆库：自动记住重要信息\(on(settings.autoMemory))；主人可让你记住或忘掉某事，也可在“设置 → 记忆库”中查看与编辑。",
+            "- \(research)：右键菜单进入，是你性能最高的状态，可检索 arXiv 与 Semantic Scholar 论文、新闻、股票行情、天气与网页，以 Markdown 与 LaTeX 作答，适合长篇学术问题。",
+            "- 每日任务\(on(settings.dailyTasksEnabled))：每天首次使用时自动执行\(taskText)；右键菜单可立即执行。",
+            "- Claude 额度提醒\(on(settings.claudeUsageAlerts))：读取 Claude Usage Widget 的数据，5 小时或每周额度用到 70%、90% 时提醒。",
+            "- 主动闲聊：\(chatterText)。",
+            "- 桌面行为：随音乐摇摆\(on(settings.danceToMusic))；自己走动（\(settings.wander.title)）；攀爬窗口；淘气行为\(on(settings.mischief))（装睡、从屏幕边缘探头、偷偷靠近鼠标）。",
+            "- 开机动画\(on(settings.bootIntro))：开机或解锁后播放金色进度条与白金页；屏幕保护程序可在“设置 → 通用”中安装。",
+        ]
+        lines.append("- 你做不到的事：操作主人电脑上的其它 App、收发邮件、修改日历、联网下单；不要承诺这些。设置项都在右键菜单“设置…”中。")
+        return "\n\n## 你的能力（被问到能做什么时据此回答，指出入口；不要编造未列出的功能）\n" + lines.joined(separator: "\n")
+    }
+
     var systemPrompt: String {
         var s = settings.persona.trimmingCharacters(in: .whitespacesAndNewlines)
         s += "\n\n你的名字是「\(settings.petName)」。"
@@ -44,6 +82,7 @@ final class PetBrain {
         if !user.isEmpty { s += "用户希望你称呼其为「\(user)」。" }
         s += settings.ownerSection
         s += MemoryStore.shared.promptSection
+        s += capabilitySection
         s += """
 
 
