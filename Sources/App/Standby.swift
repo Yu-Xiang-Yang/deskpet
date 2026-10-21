@@ -36,7 +36,8 @@ enum Standby {
             lines.append(tr("提醒调度：监控中", "Reminders: watching"))
         }
         if let event = nextEvent {
-            lines.append(tr("日程追踪：\(CalendarAlerts.label(event)) · 待开始", "Calendar: \(CalendarAlerts.label(event)) · upcoming"))
+            let day = Calendar.current.isDateInToday(event.start) ? "" : tr("明天 ", "Tomorrow ")
+            lines.append(tr("日程追踪：\(day)\(CalendarAlerts.label(event)) · 待开始", "Calendar: \(day)\(CalendarAlerts.label(event)) · upcoming"))
         } else if settings.calendarAlerts {
             lines.append(tr("日程追踪：今日无后续日程", "Calendar: nothing more today"))
         }

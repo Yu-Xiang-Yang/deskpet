@@ -251,7 +251,7 @@ function frame(now) {
   const blink = Math.floor(t * 1.2) % 2 === 0;
   x.fillStyle = blink ? 'rgba(255,214,120,.95)' : 'rgba(255,214,120,.25)';
   x.beginPath(); x.arc(68, 80, 3, 0, 7); x.fill();
-  x.fillStyle = gold(.6); x.fillText(STILL ? (ZH ? '状态 · 已锁定' : 'STATUS · LOCKED') : (ZH ? '状态 · 待命' : 'STATUS · STANDBY'), 78, 84);
+  x.fillStyle = gold(.6); x.fillText(STILL ? (ZH ? '状态 · 已锁定' : 'STATUS · LOCKED') : awake ? (ZH ? '状态 · 验证中' : 'STATUS · VERIFYING') : (ZH ? '状态 · 待命' : 'STATUS · STANDBY'), 78, 84);
   if (!STILL) {
   const away = Math.floor(t), hh = Math.floor(away / 3600), mm = Math.floor(away / 60) % 60, ss = away % 60;
   x.textAlign = 'right'; x.fillStyle = gold(.75);
