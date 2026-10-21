@@ -52,6 +52,9 @@ struct LLMRequest {
     var webSearch = false
     /// "low" … "max"; Anthropic only.
     var effort: String?
+    /// Answer without a thinking phase where the model has one (DeepSeek's `thinking` switch); faster for simple
+    /// questions. Ignored by providers without such a switch.
+    var noThinking = false
     var maxTokens: Int
     /// Structured output schema; OpenAI-compatible providers receive JSON mode instead.
     var jsonSchema: JSON? = nil

@@ -44,8 +44,12 @@ struct OpenAICompatibleProvider: LLMProvider {
             if request.toolChoiceNone { body["tool_choice"] = "none" }
         }
         if jsonMode { body["response_format"] = ["type": "json_object"] }
+        if request.noThinking && sendsThinkingSwitch { body["thinking"] = ["type": "disabled"] }
         return .object(body)
     }
+
+    /// DeepSeek's API takes a `thinking` switch; other compatible servers may reject unknown fields.
+    var sendsThinkingSwitch: Bool { URL(string: baseURL)?.host?.hasSuffix("deepseek.com") == true }
 
     func send(_ request: LLMRequest, onEvent: @escaping (LLMStreamEvent) -> Void) async throws -> LLMTurn {
         do {
@@ -54,6 +58,12 @@ struct OpenAICompatibleProvider: LLMProvider {
                     && body.localizedCaseInsensitiveContains("response_format") {
             // Some compatible servers reject JSON mode; the prompt still asks for JSON and the parser is tolerant.
             return try await send(request, jsonMode: false, onEvent: onEvent)
+        } catch LLMError.http(let status, let body) where status == 400 && request.noThinking
+                    && body.localizedCaseInsensitiveContains("thinking") {
+            // A model that does not know the switch: ask again without it.
+            var plain = request
+            plain.noThinking = false
+            return try await send(plain, jsonMode: plain.jsonSchema != nil, onEvent: onEvent)
         }
     }
 

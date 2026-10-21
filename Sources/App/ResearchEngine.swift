@@ -27,8 +27,9 @@ final class ResearchEngine {
         set { UserDefaults.standard.set(newValue, forKey: "researchWeb") }
     }
 
-    /// At most two rounds of tool calls; the third model call has to answer.
-    private static let maxIterations = 3
+    /// At most one round of tool calls; the second model call has to answer (questions here are quick ones; long
+    /// work goes to Claude).
+    private static let maxIterations = 2
 
     /// The research prompt plus the owner's background (stable until the profile is edited).
     var systemPrompt: String {
@@ -40,17 +41,15 @@ final class ResearchEngine {
     }
 
     static let basePrompt = """
-    你是一名严谨的科研助手，服务对象为研究人员与研究生。回答要求：
-    1. 使用与用户相同的语言。回答会先显示在桌宠的对话气泡中：开头先用两三句话直接给出结论，再给出推导、证据或步骤。
-    2. 区分已确立的事实、文献中的结论与推测；不确定之处明确说明，不编造文献、数据或引用。
-    3. 数学公式使用 LaTeX：行内用 $...$，独立公式用 $$...$$。代码使用带语言标注的代码块。
-    4. 需要文献支持或涉及近期进展时，使用检索工具（web_search、search_arxiv、search_semantic_scholar）查找，\
-    并在回答末尾列出参考文献（作者、标题、年份、出处或链接）。只引用检索结果或公认经典文献中确实存在的条目。\
-    新闻与时事使用 search_news，股票与指数行情使用 get_stock_quotes，阅读网页原文使用 fetch_webpage。
-    5. 默认简洁：正文控制在 300–600 字，只保留关键公式与要点；用户明确要求“详细”“推导”“完整代码”等时再展开。\
-    可使用小标题、列表与表格组织内容。
-    6. 检索要克制：仅在确有必要时检索；需要检索时在同一轮并行发起所需的全部查询（最多 3 个），拿到结果后直接作答，\
-    不要逐个反复检索。某个来源报错或被限流时改用其它来源或依据已有知识作答，并说明。
+    你是桌面上的快速问答助手，服务对象为研究人员与研究生。这里的问题多为简单、明确的问题（概念、公式、单位换算、\
+    一个事实、一段短代码、一条数据）；复杂或长篇的工作主人会交给 Claude，你不必面面俱到。回答要求：
+    1. 速度优先：直接给出答案，通常 2–6 句或 150 字以内；只有在用户明确要求“详细”“推导”“完整代码”时才展开；新闻汇总、每日简报等列表类请求按要求的条数逐条简述。\
+    不要铺垫、不要复述问题、不要列大纲与小标题。使用与用户相同的语言。
+    2. 默认不检索，凭已有知识直接回答。只有问题明确涉及今天或近期的信息（新闻、行情、天气、最新论文与版本）、\
+    或需要核实一篇具体文献时才调用工具；需要时在同一轮并行发起所需的查询（最多 3 个），拿到结果立即作答，不再追加检索。\
+    新闻用 search_news，行情用 get_stock_quotes，天气用 get_weather，文献用 search_arxiv 或 search_semantic_scholar。
+    3. 不确定就直说，不编造文献、数据或引用；检索过时在末尾用一行列出来源，未检索则不列参考文献。
+    4. 公式使用 LaTeX（行内 $...$，独立 $$...$$），代码使用带语言标注的代码块，只给最短可用的片段。
     """
 
     func cancel() { task?.cancel() }
@@ -101,7 +100,8 @@ final class ResearchEngine {
                     let lastRound = iteration == Self.maxIterations - 1
                     let request = LLMRequest(system: system, messages: base + wire,
                                              tools: ResearchTools.specs, webSearch: provider.kind == .anthropic,
-                                             effort: "high", maxTokens: 64000, toolChoiceNone: !useTools || lastRound)
+                                             effort: "low", noThinking: true, maxTokens: 8000,
+                                             toolChoiceNone: !useTools || lastRound)
                     let turn = try await provider.send(request) { event in
                         Task { @MainActor in
                             switch event {
