@@ -49,11 +49,21 @@ const cv = document.getElementById('cv'), x = cv.getContext('2d');
 // macOS 26 lock screen: date ≈ 0.07, clock ≈ 0.16, user picture ≈ 0.80, name ≈ 0.86, password field ≈ 0.90.
 let VW, VH = 900, CX, S, DPR;
 const Z = { date: 66, clock: 150, core: 420, title: 600, sub: 624, avatar: 718, name: 772, field: 808 };
+// The lock screen places the user picture, the name and the Touch ID / password line at fixed distances (in
+// points) from the bottom of the screen, measured on macOS 26: picture centre 158 pt, name 114 pt, password
+// line 87 pt. The dock follows them on any screen height (`pth`: screen height in points, for still renders).
+const LOCK_PT = { avatar: 158, name: 114, field: 87 };
+let PT_H = Number(Q.get('pth')) || 0;
+function placeDock() {
+  const hpt = PT_H || innerHeight, up = pt => VH - pt * VH / hpt;
+  Z.avatar = up(LOCK_PT.avatar); Z.name = up(LOCK_PT.name); Z.field = up(LOCK_PT.field);
+}
 function resize() {
   const w = innerWidth, h = innerHeight;
   DPR = Math.min(devicePixelRatio || 1, 2);
   cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR);
   S = h / VH; VW = w / S; CX = VW / 2;
+  placeDock();
 }
 addEventListener('resize', resize); resize();
 addEventListener('keydown', e => {  // preview helpers: 1/2/3 switch the core, L toggles the mock lock screen
@@ -280,9 +290,11 @@ function mockLock() {
 }
 
 // Renders one frame at w × h pixels (for the lock screen picture) and returns it as a PNG data URL.
-window.renderStill = (w, h, seconds = 20) => {
+window.renderStill = (w, h, seconds = 20, heightInPoints = 0) => {
+  if (heightInPoints) PT_H = heightInPoints;
   cv.style.width = w + 'px'; cv.style.height = h + 'px';
   cv.width = w; cv.height = h; DPR = 1; S = h / VH; VW = w / S; CX = VW / 2;
+  placeDock();
   frame(started + seconds * 1000);
   return cv.toDataURL('image/png');
 };
