@@ -13,6 +13,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     }
     private lazy var weather = WeatherWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
     private lazy var calendar = CalendarWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
+    private lazy var deepseekBalance = DeepSeekBalanceWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
     private lazy var claudeUsage = ClaudeUsageWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
     private let engine = ResearchEngine()
     private lazy var research = ResearchWindowController(engine: engine)
@@ -72,7 +73,11 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         weather.start()
         claudeUsage.start()
         calendar.start()
-        brain.calendarContext = { [weak self] in self?.calendar.contextLine }
+        deepseekBalance.start()
+        brain.extraContext = { [weak self] in
+            let lines = [self?.calendar.contextLine, self?.deepseekBalance.contextLine].compactMap { $0 }
+            return lines.isEmpty ? nil : lines.joined(separator: "｜")
+        }
         settings.$calendarAlerts.dropFirst().removeDuplicates().filter { $0 }.sink { [weak self] _ in
             self?.calendar.requestAccess { _ in }
         }.store(in: &subscriptions)
@@ -139,13 +144,13 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
 
         // The screen saver: keep an installed copy current, and give it fresh names and tasks every minute.
         SaverInstaller.updateIfInstalled()
-        Standby.write(nextNote: reminders.nextNote, nextEvent: calendar.nextEvent)
+        Standby.write(nextNote: reminders.nextNote, nextEvent: calendar.nextEvent, balance: deepseekBalance.balance)
         let standby = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { Standby.write(nextNote: self?.reminders.nextNote, nextEvent: self?.calendar.nextEvent) }
+            MainActor.assumeIsolated { Standby.write(nextNote: self?.reminders.nextNote, nextEvent: self?.calendar.nextEvent, balance: self?.deepseekBalance.balance) }
         }
         RunLoop.main.add(standby, forMode: .common)
         settingsWindow.onInstallSaver = { [weak self] in
-            Standby.write(nextNote: self?.reminders.nextNote, nextEvent: self?.calendar.nextEvent)
+            Standby.write(nextNote: self?.reminders.nextNote, nextEvent: self?.calendar.nextEvent, balance: self?.deepseekBalance.balance)
             return SaverInstaller.install()
                 ? tr("已安装。请在“系统设置 → 屏幕保护程序”中选择 DeskPet。", "Installed. Choose DeskPet under System Settings → Screen Saver.")
                 : tr("这个版本没有附带屏保，请用 build.sh 重新构建。", "This build has no screen saver; rebuild with build.sh.")
@@ -547,6 +552,50 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         return item
     }
 
+    private func deepseekBalanceItem() -> NSMenuItem {
+        let b = deepseekBalance.balance
+        let item = NSMenuItem(title: tr("DeepSeek 余额", "DeepSeek balance") + (b.map { "：\($0.short)" } ?? ""), action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        let lines = b.map { $0.lines + [($0.available ? tr("可正常调用", "Usable") : tr("余额不足，无法调用", "Too low to call the API"))] }
+            ?? [tr("尚未获取", "Not fetched yet")]
+        for line in lines {
+            let i = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+            i.isEnabled = false
+            submenu.addItem(i)
+        }
+        submenu.addItem(.separator())
+        let report = NSMenuItem(title: tr("让桌宠报告一下", "Have the pet report"), action: #selector(reportDeepSeekBalance), keyEquivalent: "")
+        report.target = self
+        submenu.addItem(report)
+        let open = NSMenuItem(title: tr("打开充值页面", "Open the top-up page"), action: #selector(openDeepSeekTopUp), keyEquivalent: "")
+        open.target = self
+        submenu.addItem(open)
+        item.submenu = submenu
+        return item
+    }
+
+    @objc private func reportDeepSeekBalance() {
+        pet.setStatus(tr("查询余额", "Checking the balance"))
+        deepseekBalance.refresh { [weak self] result in
+            guard let self else { return }
+            self.pet.setStatus(nil)
+            switch result {
+            case .success(let b):
+                self.pet.play(b.isLow ? .surprised : .nod)
+                let state = b.available ? (b.isLow ? tr("有点少了，记得充值～", "running low, top up soon~") : tr("还够用。", "plenty for now."))
+                                        : tr("已经不够调用了，需要充值。", "too low to call the API; please top up.")
+                self.pet.say(tr("DeepSeek 余额：", "DeepSeek balance: ") + b.lines.joined(separator: "；") + tr("，", ", ") + state, ms: 15000)
+            case .failure(let error):
+                self.pet.play(.sad)
+                self.pet.say(error.localizedDescription, kind: "error")
+            }
+        }
+    }
+
+    @objc private func openDeepSeekTopUp() {
+        if let url = URL(string: "https://platform.deepseek.com/top_up") { NSWorkspace.shared.open(url) }
+    }
+
     @objc private func reportClaudeUsage() {
         guard let usage = claudeUsage.refresh() else { return }
         pet.play(.nod)
@@ -683,6 +732,10 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         messages.submenu = submenu
         menu.addItem(messages)
         if let usage = claudeUsage.refresh() { menu.addItem(claudeUsageItem(usage)) }
+        if DeepSeekBalanceWatcher.endpoint != nil {
+            menu.addItem(deepseekBalanceItem())
+            deepseekBalance.refresh(maxAge: 60)  // fresh for the next look
+        }
         menu.addItem(.separator())
         item(reminders.focusRunning ? tr("停止专注计时", "Stop focus timer") : tr("开始专注 25 分钟", "Focus for 25 minutes"), #selector(toggleFocus))
         item(tr("提醒设置…", "Reminders…"), #selector(openReminderSettings))

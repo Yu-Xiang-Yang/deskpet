@@ -437,6 +437,27 @@ do {
     check(CalendarAlerts.contextLine([], now: at(21, 12, 0), calendar: cal) == "主人日历：今明两天没有日程", "Empty context line")
 }
 
+// MARK: DeepSeek balance
+
+do {
+    check(DeepSeekBalance.endpoint(baseURL: "https://api.deepseek.com/v1")?.absoluteString == "https://api.deepseek.com/user/balance",
+          "Balance endpoint from the base URL")
+    check(DeepSeekBalance.endpoint(baseURL: "https://api.openai.com/v1") == nil, "No balance endpoint for other providers")
+    let body = #"{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"110.00","granted_balance":"10.00","topped_up_balance":"100.00"}]}"#
+    let b = DeepSeekBalance.parse(Data(body.utf8))
+    check(b?.available == true && b?.accounts.first?.total == 110 && b?.accounts.first?.granted == 10, "Balance parsing")
+    check(b?.short == "¥110.00" && b?.isLow == false, "Balance text (\(b?.short ?? ""))")
+    var st = DeepSeekBalanceAlertState()
+    check(DeepSeekBalanceAlerts.evaluate(b!, state: &st) == nil, "No warning with ¥110")
+    var low = b!
+    low.accounts[0].total = 6.5
+    check(DeepSeekBalanceAlerts.evaluate(low, state: &st) != nil, "Warning below ¥10")
+    check(DeepSeekBalanceAlerts.evaluate(low, state: &st) == nil, "Warning once")
+    _ = DeepSeekBalanceAlerts.evaluate(b!, state: &st)
+    check(DeepSeekBalanceAlerts.evaluate(low, state: &st) != nil, "Warning again after a top-up")
+    check(DeepSeekBalance.parse(Data("{}".utf8)) == nil, "Malformed balance refused")
+}
+
 // MARK: News / quotes / web page helpers
 
 do {

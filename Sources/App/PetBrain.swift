@@ -68,6 +68,7 @@ final class PetBrain {
             "- 记忆库：自动记住重要信息\(on(settings.autoMemory))；主人可让你记住或忘掉某事，也可在“设置 → 记忆库”中查看与编辑。",
             "- \(research)：右键菜单进入，是你性能最高的状态，可检索 arXiv 与 Semantic Scholar 论文、新闻、股票行情、天气与网页，以 Markdown 与 LaTeX 作答，适合长篇学术问题。",
             "- 每日任务\(on(settings.dailyTasksEnabled))：每天首次使用时自动执行\(taskText)；右键菜单可立即执行。",
+            "- DeepSeek 余额：上下文附带当前余额（使用 DeepSeek 时），右键菜单“DeepSeek 余额”可查看明细与充值；余额不足提醒\(on(settings.deepseekBalanceAlerts))（低于 ¥10 时提醒一次）。",
             "- Claude 额度提醒\(on(settings.claudeUsageAlerts))：读取 Claude Usage Widget 的数据，5 小时或每周额度用到 70%、90% 时提醒。",
             "- 主动闲聊：\(chatterText)。",
             "- 桌面行为：随音乐摇摆\(on(settings.danceToMusic))；自己走动（\(settings.wander.title)）；攀爬窗口；淘气行为\(on(settings.mischief))（装睡、从屏幕边缘探头、偷偷靠近鼠标）。",
@@ -122,14 +123,14 @@ final class PetBrain {
         - agent_task：主人要你在电脑上动手做的事（整理或新建文件、写文档、运行命令、处理数据等多步任务）时，\
         用一两句话完整写下任务（含路径、要求），交给执行代理；reply 写一句“这就去办”之类的话。打开应用用 open_app、\
         加日程用 add_event，不要用 agent_task。其它情况为 null。
-        用户消息开头方括号中的内容是系统提供的上下文（当前时间、主人所在地天气、主人的日程等），不是用户本人说的话。
+        用户消息开头方括号中的内容是系统提供的上下文（当前时间、主人所在地天气、主人的日程、DeepSeek 余额等），不是用户本人说的话。
         回答时自然地参考记忆库，但不要每次都复述记忆。需要长篇解答的学术问题，请简要回答并建议用户在右键菜单中打开“科研模式”。
         """
         return s
     }
 
-    /// The owner's schedule for the context (set by the app controller; nil when not shared).
-    var calendarContext: (() -> String?)?
+    /// More context from the app controller: the owner's schedule (when shared) and the DeepSeek balance.
+    var extraContext: (() -> String?)?
 
     /// Time and, when the owner's city is set, its weather (cached for 30 minutes).
     private func context() async -> String {
@@ -140,7 +141,7 @@ final class PetBrain {
         let city = settings.city.trimmingCharacters(in: .whitespacesAndNewlines)
         if !city.isEmpty, let weather = await Weather.brief(city) { s += "｜主人所在地天气：\(weather)" }
         if let usage = ClaudeUsage.load(), let line = ClaudeUsage.contextLine(usage, now: Date()) { s += "｜\(line)" }
-        if let line = calendarContext?() { s += "｜\(line)" }
+        if let line = extraContext?() { s += "｜\(line)" }
         return "[\(s)]"
     }
 

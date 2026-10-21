@@ -77,6 +77,8 @@ final class AppSettings: ObservableObject {
     @Published var calendarLeadMinutes: Int { didSet { defaults.set(calendarLeadMinutes, forKey: "calendarLeadMinutes") } }
     /// Give today's and tomorrow's events to the model (their titles then reach the model provider).
     @Published var calendarInChat: Bool { didSet { defaults.set(calendarInChat, forKey: "calendarInChat") } }
+    /// Warn when the DeepSeek balance runs low.
+    @Published var deepseekBalanceAlerts: Bool { didSet { defaults.set(deepseekBalanceAlerts, forKey: "deepseekBalanceAlerts") } }
     /// Announce Claude limits that run low (data from the Claude Usage Widget).
     @Published var claudeUsageAlerts: Bool { didSet { defaults.set(claudeUsageAlerts, forKey: "claudeUsageAlerts") } }
     /// Sway to music played by other apps, and whether to follow the real beat (system-audio tap).
@@ -122,6 +124,7 @@ final class AppSettings: ObservableObject {
             "autoMemory": true,
             "weatherAlerts": true,
             "claudeUsageAlerts": true,
+            "deepseekBalanceAlerts": true,
             "calendarAlerts": false,
             "calendarLeadMinutes": 10,
             "calendarInChat": false,
@@ -162,6 +165,7 @@ final class AppSettings: ObservableObject {
         autoMemory = defaults.bool(forKey: "autoMemory")
         weatherAlerts = defaults.bool(forKey: "weatherAlerts")
         claudeUsageAlerts = defaults.bool(forKey: "claudeUsageAlerts")
+        deepseekBalanceAlerts = defaults.bool(forKey: "deepseekBalanceAlerts")
         calendarAlerts = defaults.bool(forKey: "calendarAlerts")
         calendarLeadMinutes = defaults.integer(forKey: "calendarLeadMinutes")
         calendarInChat = defaults.bool(forKey: "calendarInChat")

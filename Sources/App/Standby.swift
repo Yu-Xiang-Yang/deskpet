@@ -6,7 +6,7 @@ import Foundation
 enum Standby {
     static var file: URL { AppPaths.ensure(AppPaths.dataDir).appendingPathComponent("standby.json") }
 
-    static func write(nextNote: PendingNote?, nextEvent: CalendarEvent? = nil) {
+    static func write(nextNote: PendingNote?, nextEvent: CalendarEvent? = nil, balance: DeepSeekBalance? = nil) {
         let settings = AppSettings.shared
         let ai = settings.petName.trimmingCharacters(in: .whitespaces).isEmpty ? "DeskPet" : settings.petName
         let called = settings.userName.trimmingCharacters(in: .whitespaces)
@@ -16,14 +16,14 @@ enum Standby {
             "aiLatin": BootIntro.latinCapitals(ai),
             "name": name,
             "lang": tr("zh", "en"),
-            "tasks": tasks(nextNote: nextNote, nextEvent: nextEvent),
+            "tasks": tasks(nextNote: nextNote, nextEvent: nextEvent, balance: balance),
             "updated": Date().timeIntervalSince1970,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted]) else { return }
         try? data.write(to: file, options: .atomic)
     }
 
-    static func tasks(nextNote: PendingNote?, nextEvent: CalendarEvent? = nil, now: Date = Date()) -> [String] {
+    static func tasks(nextNote: PendingNote?, nextEvent: CalendarEvent? = nil, balance: DeepSeekBalance? = nil, now: Date = Date()) -> [String] {
         let settings = AppSettings.shared
         var lines: [String] = []
         let f = DateFormatter()
@@ -51,6 +51,9 @@ enum Standby {
             if let today = usage.day(now) {
                 lines.append(tr("今日 Claude Code：\(ClaudeUsage.tokens(today.tokens)) tokens", "Claude Code today: \(ClaudeUsage.tokens(today.tokens)) tokens"))
             }
+        }
+        if let b = balance {
+            lines.append(tr("DeepSeek 余额：\(b.short)\(b.isLow ? " · 偏低" : "")", "DeepSeek balance: \(b.short)\(b.isLow ? " · low" : "")"))
         }
         let city = settings.city.trimmingCharacters(in: .whitespaces)
         if settings.weatherAlerts, !city.isEmpty { lines.append(tr("天气监测：\(city) · 待命", "Weather watch: \(city) · armed")) }

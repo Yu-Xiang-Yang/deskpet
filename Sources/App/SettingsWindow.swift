@@ -445,6 +445,7 @@ struct SettingsView: View {
                     Button(tr("立即检查一次", "Check now")) { weatherResult = ""; onCheckWeather { weatherResult = $0 } }
                     Text(weatherResult).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
+                Toggle(tr("DeepSeek 余额不足提醒（低于 ¥10 / $1.50）", "DeepSeek low-balance alert (below ¥10 / $1.50)"), isOn: $settings.deepseekBalanceAlerts)
                 Toggle(tr("Claude 额度提醒", "Claude limit alerts"), isOn: $settings.claudeUsageAlerts)
                 Text(tr("读取 Claude Usage Widget 的数据：5 小时额度或每周额度用到 70%、90% 时提醒，5 小时额度恢复后告知。",
                         "Uses the data of the Claude Usage Widget: alerts at 70 % and 90 % of the 5-hour or weekly limit, and when the 5-hour limit is back."))
