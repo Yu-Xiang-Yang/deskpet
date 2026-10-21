@@ -138,7 +138,16 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
             abs($0.frame.minX - saved[4]) < 1 && abs($0.frame.minY - saved[5]) < 1 && abs($0.frame.width - saved[6]) < 1
         }
         panel.setFrameAutosaveName("DeskPetPanel")  // also applies the saved frame, if any
-        if !screenPresent { moveToMainScreen() } else { applyScale() }
+        if screenPresent {
+            // AppKit rescales a saved frame when the visible area of its screen changed (for example the menu bar
+            // moved to another display) and may then put it on another screen: the saved position is used as is.
+            let size = scaledSize
+            let x = saved[0] + (saved[2] - size.width) / 2
+            place(NSPoint(x: x, y: saved[1] + (flipped ? bubbleBand : 0)), size: size)
+            if ready { webView.call("pet.setScale", .number(Double(scale))) }
+        } else {
+            moveToMainScreen()
+        }
         bringBackIfOffScreen()
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
                                                queue: .main) { [weak self] _ in
