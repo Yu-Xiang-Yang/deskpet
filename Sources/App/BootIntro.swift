@@ -1,8 +1,9 @@
 import AppKit
 import WebKit
 
-/// The login intro (web/intro.html: terminal log → glitch → white-and-gold sanctum) on every screen, above all
-/// windows. It ends by itself after about 6 s, on any key or click, and at the latest after 12 s.
+/// The login intro (web/intro.html: terminal log → glitch → white-and-gold sanctum; after an unlock a gold
+/// progress bar where the password field was → sanctum) on every screen, above all windows. It ends by itself
+/// after about 6 s, on any key or click, and at the latest after 12 s.
 @MainActor
 final class BootIntro: NSObject, WKScriptMessageHandler {
     private var windows: [NSWindow] = []
@@ -30,12 +31,13 @@ final class BootIntro: NSObject, WKScriptMessageHandler {
         return Double(tv.tv_sec)
     }
 
-    func play(completion: @escaping () -> Void) {
+    func play(returning: Bool = false, completion: @escaping () -> Void) {
         guard windows.isEmpty else { return }
         playedThisLaunch = true
         self.completion = completion
         var comps = URLComponents(url: AppSchemeHandler.url("web/intro.html"), resolvingAgainstBaseURL: false)!
         comps.queryItems = Self.systemInfo().map { URLQueryItem(name: $0.key, value: $0.value) }
+            + (returning ? [URLQueryItem(name: "mode", value: "return")] : [])
         // DESKPET_INTRO_WINDOWED (tests): a small window in a corner that takes neither focus, keys nor the cursor.
         let windowed = ProcessInfo.processInfo.environment["DESKPET_INTRO_WINDOWED"] != nil
         for screen in windowed ? Array(NSScreen.screens.prefix(1)) : NSScreen.screens {

@@ -11,8 +11,9 @@
 <body>
 <canvas id="cv"></canvas>
 <script>
-// Login intro of DeskPet: terminal log → glitch → white-and-gold sanctum. The system information comes from
-// the native shell as URL parameters; a browser preview uses neutral defaults.
+// Login intro of DeskPet: terminal log → glitch → white-and-gold sanctum. mode=return (after the screen was
+// unlocked): a gold progress bar where the password field was → white-and-gold sanctum. The system information
+// comes from the native shell as URL parameters; a browser preview uses neutral defaults.
 const Q = new URLSearchParams(location.search);
 const INFO = {
   name: Q.get('name') || 'Friend',
@@ -32,11 +33,13 @@ const INFO = {
   model: Q.get('model'),
 };
 const LOOP = Q.has('loop');
+const RETURN = Q.get('mode') === 'return';
 const native = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.boot;
 const post = m => { if (native) native.postMessage(m); };
 
-// 时间轴（秒）
-const T_TERM = 1.7, T_GLITCH = 0.6, T_HOLY = 3.9;
+// 时间轴（秒）。恢复模式：进度条 T_BAR 取代终端日志与故障转场。
+const T_BAR = 1.9;
+const T_TERM = RETURN ? T_BAR : 1.7, T_GLITCH = RETURN ? 0 : 0.6, T_HOLY = 3.9;
 const T1 = T_TERM, T2 = T_TERM + T_GLITCH, T_END = T2 + T_HOLY;
 const T_DONE = T_END - 0.6; // 通知播放器开始 0.6 s 淡出
 
@@ -47,11 +50,12 @@ const CJK = '"PingFang SC", "Hiragino Sans GB", sans-serif';
 const cv = document.getElementById('cv'), x = cv.getContext('2d');
 // 虚拟坐标系：高度固定 900，宽度随屏幕比例变化
 let VW, VH = 900, CX, CY, S, DPR;
+let U = 1;  // 每点（pt）对应的虚拟单位
 function resize() {
   const w = innerWidth, h = innerHeight;
   DPR = Math.min(devicePixelRatio || 1, 3840 / w);
   cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR);
-  S = h / VH; VW = w / S; CX = VW / 2; CY = VH / 2;
+  S = h / VH; VW = w / S; CX = VW / 2; CY = VH / 2; U = VH / h;
 }
 addEventListener('resize', resize); resize();
 const baseT = () => x.setTransform(DPR * S, 0, 0, DPR * S, 0, 0);
@@ -160,6 +164,97 @@ function glitch(t) {
 
 /* ---------- 阶段 3：白金圣域 ---------- */
 const GOLD = '201,164,92';
+
+/* ---------- 恢复模式：密码栏处的进度条 ---------- */
+// The password prompt of macOS 26 (measured, in points from the bottom): user picture 137.5 (45 pt across),
+// password field 89 (160 × 28 pt), Touch ID line 59.5. The bar takes the field's place, the ring the picture's.
+const LOCK_PT = { avatar: 137.5, avatarR: 22.5, field: 89, fieldW: 160, fieldH: 28, hint: 59.5, name: 209 };
+const BAR_LOG = ['Operator verified', ...LOG.slice(3, -2), 'Session restored'];  // in the boot log's voice
+function ZH() { return /[一-鿿]/.test(INFO.greeting); }
+// 进度：分三段推进，中间稍作停顿，看起来像真实的加载
+function barProgress(t) {
+  const k = cl(t / 1.45);
+  return cl(.42 * eo(k / .35) + .33 * eo((k - .42) / .25) + .25 * eo((k - .74) / .26));
+}
+function bar(t) {
+  baseT();
+  const up = pt => VH - pt * U;
+  const fy = up(LOCK_PT.field), fw = LOCK_PT.fieldW * U, fh = LOCK_PT.fieldH * U, ay = up(LOCK_PT.avatar), ar = LOCK_PT.avatarR * U;
+  const p = barProgress(t), white = cl((t - 1.5) / .4);
+  // Background: the screen saver's night, warming around the bar.
+  x.fillStyle = '#030305'; x.fillRect(0, 0, VW, VH);
+  const warm = x.createRadialGradient(CX, fy, 10, CX, fy, VW * .6);
+  warm.addColorStop(0, `rgba(120,92,40,${.18 + .35 * p})`); warm.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = warm; x.fillRect(0, 0, VW, VH);
+  const fade = eo(t / .25);
+
+  // The ring where the user picture was: the inner disc fills with light as the bar runs.
+  x.save(); x.globalAlpha = fade;
+  const core = x.createRadialGradient(CX, ay, 0, CX, ay, ar);
+  core.addColorStop(0, `rgba(255,240,205,${.25 + .6 * p})`); core.addColorStop(1, `rgba(214,186,130,${.08 + .2 * p})`);
+  x.fillStyle = core; x.beginPath(); x.arc(CX, ay, ar, 0, 7); x.fill();
+  x.strokeStyle = `rgba(${GOLD},.85)`; x.lineWidth = 1;
+  x.beginPath(); x.arc(CX, ay, ar + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p); x.stroke();
+  x.strokeStyle = `rgba(${GOLD},.25)`; x.beginPath(); x.arc(CX, ay, ar + 10, 0, 7); x.stroke();
+  for (let i = 0; i < 4; i++) {
+    const a = t * 1.6 + i * Math.PI / 2;
+    x.strokeStyle = `rgba(${GOLD},.8)`; x.lineWidth = 1.4;
+    x.beginPath(); x.arc(CX, ay, ar + 10, a, a + .35); x.stroke();
+  }
+  diamond(CX, ay, 6 + 3 * p, `rgba(255,250,235,${.6 + .4 * p})`);
+
+  // Name line: who was let in.
+  x.font = `11px ${MONO}`; x.fillStyle = `rgba(${GOLD},.85)`; x.textBaseline = 'middle';
+  spaced(ZH() ? `操作员已确认 · ${INFO.name}` : `OPERATOR VERIFIED · ${INFO.name.toUpperCase()}`, CX, up(LOCK_PT.name), 3);
+
+  // The bar: a capsule as large as the password field, filled with a gold gradient and a passing sheen.
+  const left = CX - fw / 2, top = fy - fh / 2, r = fh / 2;
+  x.fillStyle = 'rgba(255,240,205,.06)'; x.beginPath(); x.roundRect(left, top, fw, fh, r); x.fill();
+  x.strokeStyle = `rgba(${GOLD},.75)`; x.lineWidth = 1; x.beginPath(); x.roundRect(left, top, fw, fh, r); x.stroke();
+  const inset = 3, iw = (fw - inset * 2) * p, ih = fh - inset * 2;
+  if (iw > 1) {
+    x.save(); x.beginPath(); x.roundRect(left + inset, top + inset, Math.max(iw, ih), ih, ih / 2); x.clip();
+    const g = x.createLinearGradient(left, 0, left + fw, 0);
+    g.addColorStop(0, '#7A5C24'); g.addColorStop(.45, '#C9A45C'); g.addColorStop(.8, '#F3DFA8'); g.addColorStop(1, '#FFF6DC');
+    x.fillStyle = g; x.fillRect(left, top, fw, fh);
+    const sx = left + ((t * 1.2) % 1.4 - .2) * fw;  // sheen
+    const sg = x.createLinearGradient(sx - 30, 0, sx + 30, 0);
+    sg.addColorStop(0, 'rgba(255,255,255,0)'); sg.addColorStop(.5, 'rgba(255,255,255,.55)'); sg.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = sg; x.fillRect(sx - 30, top, 60, fh);
+    x.restore();
+    // Spark at the head of the fill.
+    const hx = left + inset + iw;
+    const sp = x.createRadialGradient(hx, fy, 0, hx, fy, 16);
+    sp.addColorStop(0, 'rgba(255,250,230,.95)'); sp.addColorStop(1, 'rgba(255,250,230,0)');
+    x.fillStyle = sp; x.fillRect(hx - 16, fy - 16, 32, 32);
+  }
+  diamond(left - 12, fy, 5, `rgb(${GOLD})`); diamond(left + fw + 12, fy, 5, `rgb(${GOLD})`);
+  // Hairlines on either side, as in the screen saver.
+  [-1, 1].forEach(sgn => {
+    const a = CX + sgn * (fw / 2 + 24), b = CX + sgn * (fw / 2 + 24 + 160 + 220 * p);
+    const lg = x.createLinearGradient(a, 0, b, 0);
+    lg.addColorStop(0, `rgba(${GOLD},.7)`); lg.addColorStop(1, `rgba(${GOLD},0)`);
+    x.strokeStyle = lg; x.lineWidth = 1; x.beginPath(); x.moveTo(a, fy); x.lineTo(b, fy); x.stroke();
+  });
+
+  // Status line where the Touch ID hint was: the restore log, step by step, and the percentage.
+  const step = BAR_LOG[Math.min(BAR_LOG.length - 1, Math.floor(p * (BAR_LOG.length - 1) + .0001))];
+  x.font = `12px ${MONO}`; x.fillStyle = 'rgba(240,226,196,.8)';
+  spaced(`${step}  ·  ${String(Math.round(p * 100)).padStart(3, ' ')}%`, CX, up(LOCK_PT.hint), 1);
+  x.textBaseline = 'alphabetic';
+  x.font = `11px ${MONO}`; x.textAlign = 'left'; x.fillStyle = `rgba(${GOLD},.75)`;
+  x.fillText(`${INFO.aiLatin} CORE  //  ${ZH() ? '恢复会话' : 'RESTORING SESSION'}`, 64, 64);
+  x.restore();
+
+  // At 100 %: light spreads from the bar over the screen, into the sanctum.
+  if (white > 0) {
+    const wg = x.createRadialGradient(CX, fy, 0, CX, fy, Math.max(VW, VH) * (.2 + 1.2 * eo(white)));
+    wg.addColorStop(0, `rgba(255,252,244,${eo(white)})`); wg.addColorStop(.7, `rgba(255,252,244,${eo(white)})`); wg.addColorStop(1, 'rgba(255,252,244,0)');
+    x.fillStyle = wg; x.fillRect(0, 0, VW, VH);
+    if (white >= .95) { x.fillStyle = `rgba(255,252,244,${(white - .95) / .05})`; x.fillRect(0, 0, VW, VH); }
+  }
+}
+
 const GREEK = 'ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ';
 const DUST = Array.from({ length: 110 }, () => ({
   u: Math.random(), v: Math.random(), s: 2 + Math.random() * 6, sp: 14 + Math.random() * 40, r: Math.random() * 6,
@@ -323,7 +418,7 @@ function frame(now) {
     if (!LOOP) { holy(T_HOLY); return; }
     t0 = now; t = 0; sentDone = false;
   }
-  if (t < T1) term(t);
+  if (t < T1) RETURN ? bar(t) : term(t);
   else if (t < T2) glitch(t - T1);
   else holy(t - T2);
   requestAnimationFrame(frame);
