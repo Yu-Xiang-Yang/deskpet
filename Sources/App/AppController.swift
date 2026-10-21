@@ -12,6 +12,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         self?.brain.remind(text, motion: motion)
     }
     private lazy var weather = WeatherWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
+    private lazy var calendar = CalendarWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
     private lazy var claudeUsage = ClaudeUsageWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
     private let engine = ResearchEngine()
     private lazy var research = ResearchWindowController(engine: engine)
@@ -58,6 +59,11 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         reminders.start()
         weather.start()
         claudeUsage.start()
+        calendar.start()
+        brain.calendarContext = { [weak self] in self?.calendar.contextLine }
+        settings.$calendarAlerts.dropFirst().removeDuplicates().filter { $0 }.sink { [weak self] _ in
+            self?.calendar.requestAccess { _ in }
+        }.store(in: &subscriptions)
 
         chatPanel.onSend = { [weak self] text in
             guard let self else { return }
@@ -73,6 +79,9 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         settingsWindow.onRunDailyTasks = { [weak self] in self?.runDailyTasks() }
         settingsWindow.onPreviewMeow = { [weak self] in self?.pet.meow(.meow) }
         settingsWindow.onCheckWeather = { [weak self] report in self?.weather.check(force: true, report: report) }
+        settingsWindow.onCheckCalendar = { [weak self] report in
+            self?.calendar.requestAccess { _ in self?.calendar.check(force: true, report: report) }
+        }
 
         settings.$petScale.dropFirst().removeDuplicates().sink { [weak self] in self?.pet.scale = CGFloat($0) }.store(in: &subscriptions)
         settings.$petLayer.dropFirst().sink { [weak self] layer in
@@ -118,13 +127,13 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
 
         // The screen saver: keep an installed copy current, and give it fresh names and tasks every minute.
         SaverInstaller.updateIfInstalled()
-        Standby.write(nextNote: reminders.nextNote)
+        Standby.write(nextNote: reminders.nextNote, nextEvent: calendar.nextEvent)
         let standby = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { Standby.write(nextNote: self?.reminders.nextNote) }
+            MainActor.assumeIsolated { Standby.write(nextNote: self?.reminders.nextNote, nextEvent: self?.calendar.nextEvent) }
         }
         RunLoop.main.add(standby, forMode: .common)
         settingsWindow.onInstallSaver = { [weak self] in
-            Standby.write(nextNote: self?.reminders.nextNote)
+            Standby.write(nextNote: self?.reminders.nextNote, nextEvent: self?.calendar.nextEvent)
             return SaverInstaller.install()
                 ? tr("已安装。请在“系统设置 → 屏幕保护程序”中选择 DeskPet。", "Installed. Choose DeskPet under System Settings → Screen Saver.")
                 : tr("这个版本没有附带屏保，请用 build.sh 重新构建。", "This build has no screen saver; rebuild with build.sh.")

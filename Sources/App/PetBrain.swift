@@ -69,11 +69,14 @@ final class PetBrain {
         s += """
 
         - forget：主人要求忘掉某件事时，填写能匹配相关记忆的关键词；否则为 null。
-        用户消息开头方括号中的内容是系统提供的上下文（当前时间、主人所在地天气等），不是用户本人说的话。
+        用户消息开头方括号中的内容是系统提供的上下文（当前时间、主人所在地天气、主人的日程等），不是用户本人说的话。
         回答时自然地参考记忆库，但不要每次都复述记忆。需要长篇解答的学术问题，请简要回答并建议用户在右键菜单中打开“科研模式”。
         """
         return s
     }
+
+    /// The owner's schedule for the context (set by the app controller; nil when not shared).
+    var calendarContext: (() -> String?)?
 
     /// Time and, when the owner's city is set, its weather (cached for 30 minutes).
     private func context() async -> String {
@@ -84,6 +87,7 @@ final class PetBrain {
         let city = settings.city.trimmingCharacters(in: .whitespacesAndNewlines)
         if !city.isEmpty, let weather = await Weather.brief(city) { s += "｜主人所在地天气：\(weather)" }
         if let usage = ClaudeUsage.load(), let line = ClaudeUsage.contextLine(usage, now: Date()) { s += "｜\(line)" }
+        if let line = calendarContext?() { s += "｜\(line)" }
         return "[\(s)]"
     }
 

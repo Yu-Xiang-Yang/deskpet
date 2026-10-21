@@ -6,7 +6,7 @@ import Foundation
 enum Standby {
     static var file: URL { AppPaths.ensure(AppPaths.dataDir).appendingPathComponent("standby.json") }
 
-    static func write(nextNote: PendingNote?) {
+    static func write(nextNote: PendingNote?, nextEvent: CalendarEvent? = nil) {
         let settings = AppSettings.shared
         let ai = settings.petName.trimmingCharacters(in: .whitespaces).isEmpty ? "DeskPet" : settings.petName
         let called = settings.userName.trimmingCharacters(in: .whitespaces)
@@ -16,14 +16,14 @@ enum Standby {
             "aiLatin": BootIntro.latinCapitals(ai),
             "name": name,
             "lang": tr("zh", "en"),
-            "tasks": tasks(nextNote: nextNote),
+            "tasks": tasks(nextNote: nextNote, nextEvent: nextEvent),
             "updated": Date().timeIntervalSince1970,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted]) else { return }
         try? data.write(to: file, options: .atomic)
     }
 
-    static func tasks(nextNote: PendingNote?, now: Date = Date()) -> [String] {
+    static func tasks(nextNote: PendingNote?, nextEvent: CalendarEvent? = nil, now: Date = Date()) -> [String] {
         let settings = AppSettings.shared
         var lines: [String] = []
         let f = DateFormatter()
@@ -34,6 +34,11 @@ enum Standby {
             lines.append(tr("提醒调度：\(time) \(what) · 待触发", "Reminders: \(time) \(what) · pending"))
         } else {
             lines.append(tr("提醒调度：监控中", "Reminders: watching"))
+        }
+        if let event = nextEvent {
+            lines.append(tr("日程追踪：\(CalendarAlerts.label(event)) · 待开始", "Calendar: \(CalendarAlerts.label(event)) · upcoming"))
+        } else if settings.calendarAlerts {
+            lines.append(tr("日程追踪：今日无后续日程", "Calendar: nothing more today"))
         }
         lines.append(tr("记忆库：\(MemoryStore.shared.items.count) 条 · 已封存", "Memory bank: \(MemoryStore.shared.items.count) entries · sealed"))
         if let usage = ClaudeUsage.load() {

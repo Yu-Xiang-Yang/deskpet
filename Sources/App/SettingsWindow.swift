@@ -7,6 +7,7 @@ final class SettingsWindowController {
     var onTestReminders: (() -> Void)?
     var onRunDailyTasks: (() -> Void)?
     var onCheckWeather: ((@escaping (String) -> Void) -> Void)?
+    var onCheckCalendar: ((@escaping (String) -> Void) -> Void)?
     var onPreviewMeow: (() -> Void)?
     var onInstallSaver: (() -> String)?
 
@@ -18,6 +19,7 @@ final class SettingsWindowController {
                 onTestReminders: { [weak self] in self?.onTestReminders?() },
                 onRunDailyTasks: { [weak self] in self?.onRunDailyTasks?() },
                 onCheckWeather: { [weak self] report in self?.onCheckWeather?(report) },
+                onCheckCalendar: { [weak self] report in self?.onCheckCalendar?(report) },
                 onPreviewMeow: { [weak self] in self?.onPreviewMeow?() },
                 onInstallSaver: { [weak self] in self?.onInstallSaver?() ?? "" }))
             let w = NSWindow(contentViewController: hosting)
@@ -41,6 +43,7 @@ struct SettingsView: View {
     var onTestReminders: () -> Void
     var onRunDailyTasks: () -> Void
     var onCheckWeather: (@escaping (String) -> Void) -> Void
+    var onCheckCalendar: (@escaping (String) -> Void) -> Void
     var onPreviewMeow: () -> Void
     var onInstallSaver: () -> String
     @State private var saverResult = ""
@@ -49,6 +52,7 @@ struct SettingsView: View {
     @State private var newMemory = ""
     @State private var confirmClear = false
     @State private var weatherResult = ""
+    @State private var calendarResult = ""
 
     @State private var anthropicKey = Keychain.hasValue(account: "anthropic") ? (Keychain.read(account: "anthropic") ?? "") : ""
     @State private var openaiKey = Keychain.hasValue(account: "openai") ? (Keychain.read(account: "openai") ?? "") : ""
@@ -409,6 +413,28 @@ struct SettingsView: View {
                          : tr("每 \(settings.chatterLLMEvery) 次闲聊由模型生成 1 次", "1 of every \(settings.chatterLLMEvery) remarks written by the model"))
                 }
                 Toggle(tr("由模型以角色口吻改写提醒", "Let the model phrase reminders in character"), isOn: $settings.aiReminderWording)
+            }
+            Section {
+                Toggle(tr("日历日程提醒", "Calendar event reminders"), isOn: $settings.calendarAlerts)
+                Stepper(value: $settings.calendarLeadMinutes, in: 1...120, step: settings.calendarLeadMinutes < 10 ? 1 : 5) {
+                    Text(tr("提前 \(settings.calendarLeadMinutes) 分钟提醒", "Remind \(settings.calendarLeadMinutes) min before"))
+                }
+                .disabled(!settings.calendarAlerts)
+                Toggle(tr("聊天时让角色知道今明两天的日程", "Let the character know today's and tomorrow's events in chats"), isOn: $settings.calendarInChat)
+                    .disabled(!settings.calendarAlerts)
+                HStack {
+                    Button(tr("读取今日日程", "Read today's events")) {
+                        calendarResult = ""
+                        onCheckCalendar { calendarResult = $0 }
+                    }
+                    Text(calendarResult).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            } header: {
+                Text(tr("日历", "Calendar"))
+            } footer: {
+                Text(tr("读取“日历”App 中的所有日程（包括已同步的 iCloud、Google、Exchange 账户），不修改日历。每天第一次在电脑前时播报当天日程，带时间的日程在开始前提醒；已取消或已拒绝的邀请不提醒。开启“聊天时……”后，日程标题、时间与地点会随对话发给所选的模型服务。",
+                        "Reads every event in the Calendar app (including synced iCloud, Google and Exchange accounts) and never changes the calendar. The day's events are announced the first time you are at the Mac each day, and timed events shortly before they start; cancelled or declined invitations are skipped. With the chat option on, event titles, times and places are sent to the chosen model service along with your messages."))
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 Button(tr("测试全部提醒", "Test all reminders"), action: onTestReminders)

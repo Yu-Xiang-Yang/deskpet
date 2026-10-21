@@ -368,6 +368,52 @@ do {
     try? FileManager.default.removeItem(at: dir)
 }
 
+// MARK: Calendar alerts
+
+do {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+    func at(_ day: Int, _ h: Int, _ m: Int) -> Date { cal.date(from: DateComponents(year: 2026, month: 10, day: day, hour: h, minute: m))! }
+    let meeting = CalendarEvent(id: "m", title: "组会", start: at(21, 15, 0), end: at(21, 16, 0), allDay: false, location: "B302")
+    let holiday = CalendarEvent(id: "h", title: "休假", start: at(21, 0, 0), end: at(22, 0, 0), allDay: true, location: nil)
+    let early = CalendarEvent(id: "e", title: "早会", start: at(21, 9, 0), end: at(21, 9, 30), allDay: false, location: nil)
+    let tomorrow = CalendarEvent(id: "t", title: "答辩", start: at(22, 10, 0), end: at(22, 11, 0), allDay: false, location: nil)
+    let events = [tomorrow, meeting, holiday, early]
+    var st = CalendarAlertState()
+
+    var alerts = CalendarAlerts.evaluate(events, now: at(21, 5, 30), leadMinutes: 10, present: true, state: &st, calendar: cal)
+    check(alerts.isEmpty, "No overview before 06:00")
+    alerts = CalendarAlerts.evaluate(events, now: at(21, 10, 0), leadMinutes: 10, present: false, state: &st, calendar: cal)
+    check(alerts.isEmpty, "Overview waits for the owner")
+    alerts = CalendarAlerts.evaluate(events, now: at(21, 10, 0), leadMinutes: 10, present: true, state: &st, calendar: cal)
+    check(alerts == [.today([holiday, meeting])], "Overview: all-day first, ended events left out")
+    check(CalendarAlerts.evaluate(events, now: at(21, 10, 1), leadMinutes: 10, present: true, state: &st, calendar: cal).isEmpty,
+          "Overview once per day")
+    check(CalendarAlerts.evaluate(events, now: at(21, 14, 49), leadMinutes: 10, present: true, state: &st, calendar: cal).isEmpty,
+          "Not yet within the lead time")
+    alerts = CalendarAlerts.evaluate(events, now: at(21, 14, 50), leadMinutes: 10, present: false, state: &st, calendar: cal)
+    check(alerts == [.upcoming(meeting, minutes: 10)], "Event alert at the lead time, also while away")
+    check(CalendarAlerts.evaluate(events, now: at(21, 14, 55), leadMinutes: 10, present: true, state: &st, calendar: cal).isEmpty,
+          "Event alert once")
+    var moved = meeting
+    moved.start = at(21, 15, 30)
+    alerts = CalendarAlerts.evaluate([moved], now: at(21, 15, 25), leadMinutes: 10, present: true, state: &st, calendar: cal)
+    check(alerts == [.upcoming(moved, minutes: 5)], "A moved event is announced again")
+    var woke = CalendarAlertState(lastDigestDay: "2026-10-21")
+    alerts = CalendarAlerts.evaluate(events, now: at(21, 15, 3), leadMinutes: 10, present: true, state: &woke, calendar: cal)
+    check(alerts == [.upcoming(meeting, minutes: -3)], "Just-started event still announced")
+    check(CalendarAlerts.message(alerts[0]).text.contains("已经开始") || CalendarAlerts.message(alerts[0]).text.contains("started"),
+          "Started wording")
+    check(CalendarAlerts.evaluate(events, now: at(21, 15, 6), leadMinutes: 10, present: true, state: &woke, calendar: cal).isEmpty,
+          "No alert later than 5 min after the start")
+    check(CalendarAlerts.label(meeting).hasSuffix("组会（B302）") || CalendarAlerts.label(meeting).hasSuffix("组会 (B302)"), "Label with place")
+    check(CalendarAlerts.next(events, now: at(21, 12, 0)) == meeting, "Next timed event")
+    let line = CalendarAlerts.contextLine(events, now: at(21, 12, 0), calendar: cal) ?? ""
+    check(line.contains("组会") && line.contains("休假") && !line.contains("早会") && line.contains("明天日程") && line.contains("答辩"),
+          "Context line (\(line))")
+    check(CalendarAlerts.contextLine([], now: at(21, 12, 0), calendar: cal) == "主人日历：今明两天没有日程", "Empty context line")
+}
+
 // MARK: News / quotes / web page helpers
 
 do {

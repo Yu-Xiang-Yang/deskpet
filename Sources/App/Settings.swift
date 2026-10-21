@@ -72,6 +72,11 @@ final class AppSettings: ObservableObject {
     @Published var bootIntro: Bool { didSet { defaults.set(bootIntro, forKey: "bootIntro") } }
     /// The intro also when the owner returns: after the display slept, the screen was locked or the screen saver ran.
     @Published var introOnReturn: Bool { didSet { defaults.set(introOnReturn, forKey: "introOnReturn") } }
+    /// Announce events of the system calendar: the day's overview, and each event shortly before it starts.
+    @Published var calendarAlerts: Bool { didSet { defaults.set(calendarAlerts, forKey: "calendarAlerts") } }
+    @Published var calendarLeadMinutes: Int { didSet { defaults.set(calendarLeadMinutes, forKey: "calendarLeadMinutes") } }
+    /// Give today's and tomorrow's events to the model (their titles then reach the model provider).
+    @Published var calendarInChat: Bool { didSet { defaults.set(calendarInChat, forKey: "calendarInChat") } }
     /// Announce Claude limits that run low (data from the Claude Usage Widget).
     @Published var claudeUsageAlerts: Bool { didSet { defaults.set(claudeUsageAlerts, forKey: "claudeUsageAlerts") } }
     /// Sway to music played by other apps, and whether to follow the real beat (system-audio tap).
@@ -117,6 +122,9 @@ final class AppSettings: ObservableObject {
             "autoMemory": true,
             "weatherAlerts": true,
             "claudeUsageAlerts": true,
+            "calendarAlerts": false,
+            "calendarLeadMinutes": 10,
+            "calendarInChat": false,
             "bootIntro": false,
             "introOnReturn": false,
             "followBeat": true,
@@ -154,6 +162,9 @@ final class AppSettings: ObservableObject {
         autoMemory = defaults.bool(forKey: "autoMemory")
         weatherAlerts = defaults.bool(forKey: "weatherAlerts")
         claudeUsageAlerts = defaults.bool(forKey: "claudeUsageAlerts")
+        calendarAlerts = defaults.bool(forKey: "calendarAlerts")
+        calendarLeadMinutes = defaults.integer(forKey: "calendarLeadMinutes")
+        calendarInChat = defaults.bool(forKey: "calendarInChat")
         bootIntro = defaults.bool(forKey: "bootIntro")
         introOnReturn = defaults.bool(forKey: "introOnReturn")
         researchModeName = defaults.string(forKey: "researchModeName") ?? ""
