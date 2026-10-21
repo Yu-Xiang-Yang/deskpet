@@ -79,7 +79,12 @@ final class DshAgent {
         （如 df -h）；不要用 ssh 主机 "命令" 在后台一次性执行。窗口和 ssh 会话保持打开，交给主人继续使用。
         3. 需要汇报结果时，读取终端窗口的内容：osascript -e 'tell application "Terminal" to get contents of selected tab of front window'。
         4. 写好或修改文件后，用 open -R "文件路径" 在访达里打开所在文件夹并选中该文件；主人要看内容时再用 open "文件路径" 打开。
-        5. 搜索、读取文件这类主人不需要看的中间步骤可以直接在后台完成。
+        5. 本地与服务器之间传文件也在“终端”窗口里可见地进行，让主人看到进度：用 scp（目录加 -r），\
+        例如下载 scp -r car-data:/远程路径 ~/Downloads/，上传 scp -r "本地路径" car-data:/远程目录/。没有指定本地位置时下载到 ~/Downloads。\
+        上传前先用 open -R 在访达里选中要上传的本地文件；下载完用 open -R 在访达里选中下载到的文件；上传完在同一终端窗口里运行 \
+        ssh 主机 "ls -lh 远程目录" 显示文件已到达。目标位置已有同名文件时不要覆盖，改用加后缀的新名字并在汇报中说明。\
+        判断命令是否结束可查询 osascript -e 'tell application "Terminal" to get busy of selected tab of front window'（false 表示已结束）。
+        6. 搜索、读取文件这类主人不需要看的中间步骤可以直接在后台完成。
         完成后用中文简要汇报结果（不超过 150 字），列出新建或修改的文件。
 
         任务：\(task)
