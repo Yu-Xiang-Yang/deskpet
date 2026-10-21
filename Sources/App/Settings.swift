@@ -66,6 +66,8 @@ final class AppSettings: ObservableObject {
     @Published var autoMemory: Bool { didSet { defaults.set(autoMemory, forKey: "autoMemory") } }
     /// Announce weather changes for the owner's city.
     @Published var weatherAlerts: Bool { didSet { defaults.set(weatherAlerts, forKey: "weatherAlerts") } }
+    /// Announce Claude limits that run low (data from the Claude Usage Widget).
+    @Published var claudeUsageAlerts: Bool { didSet { defaults.set(claudeUsageAlerts, forKey: "claudeUsageAlerts") } }
     /// Sway to music played by other apps, and whether to follow the real beat (system-audio tap).
     @Published var danceToMusic: Bool { didSet { defaults.set(danceToMusic, forKey: "danceToMusic") } }
     @Published var followBeat: Bool { didSet { defaults.set(followBeat, forKey: "followBeat") } }
@@ -108,6 +110,7 @@ final class AppSettings: ObservableObject {
             "danceToMusic": true,
             "autoMemory": true,
             "weatherAlerts": true,
+            "claudeUsageAlerts": true,
             "followBeat": true,
         ])
         provider = ProviderKind(rawValue: defaults.string(forKey: "provider") ?? "") ?? .anthropic
@@ -142,6 +145,7 @@ final class AppSettings: ObservableObject {
         danceToMusic = defaults.bool(forKey: "danceToMusic")
         autoMemory = defaults.bool(forKey: "autoMemory")
         weatherAlerts = defaults.bool(forKey: "weatherAlerts")
+        claudeUsageAlerts = defaults.bool(forKey: "claudeUsageAlerts")
         followBeat = defaults.bool(forKey: "followBeat")
     }
 

@@ -12,6 +12,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         self?.brain.remind(text, motion: motion)
     }
     private lazy var weather = WeatherWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
+    private lazy var claudeUsage = ClaudeUsageWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
     private let engine = ResearchEngine()
     private lazy var research = ResearchWindowController(engine: engine)
     private let settingsWindow = SettingsWindowController()
@@ -46,6 +47,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         brain.start()
         reminders.start()
         weather.start()
+        claudeUsage.start()
 
         chatPanel.onSend = { [weak self] text in
             guard let self else { return }
@@ -355,6 +357,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
                 else if command.hasPrefix("mischief:") { self.mischief.trigger(String(command.dropFirst(9))) }
                 else if command == "pat" { self.petDidClick(area: "head", clickCount: 1) }
                 else if command == "climb" { self.climber.climbNow() }
+                else if command == "usage" { self.reportClaudeUsage() }
                 else if command == "down" { self.climber.jumpDown() }
                 else if command.hasPrefix("meow:") { self.pet.meow(MeowKind(rawValue: String(command.dropFirst(5))) ?? .meow) }
             }
@@ -372,6 +375,29 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private func showMessageList(_ conversationID: String?) {
         chatPanel.dismissKeepingFocus()
         research.show(conversationID: conversationID)
+    }
+
+    /// Limits and usage from the Claude Usage Widget, and a button to have the pet read them out.
+    private func claudeUsageItem(_ usage: ClaudeUsageSnapshot) -> NSMenuItem {
+        let item = NSMenuItem(title: tr("Claude 用量", "Claude usage"), action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        for line in ClaudeUsage.summaryLines(usage, now: Date()) {
+            let i = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+            i.isEnabled = false
+            submenu.addItem(i)
+        }
+        submenu.addItem(.separator())
+        let report = NSMenuItem(title: tr("让桌宠报告一下", "Have the pet report"), action: #selector(reportClaudeUsage), keyEquivalent: "")
+        report.target = self
+        submenu.addItem(report)
+        item.submenu = submenu
+        return item
+    }
+
+    @objc private func reportClaudeUsage() {
+        guard let usage = claudeUsage.refresh() else { return }
+        pet.play(.nod)
+        pet.say(ClaudeUsage.report(usage, now: Date()), ms: 15000)
     }
 
     /// Recent conversations, newest first, plus the full list.
@@ -501,6 +527,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         fillMessages(submenu)
         messages.submenu = submenu
         menu.addItem(messages)
+        if let usage = claudeUsage.refresh() { menu.addItem(claudeUsageItem(usage)) }
         menu.addItem(.separator())
         item(reminders.focusRunning ? tr("停止专注计时", "Stop focus timer") : tr("开始专注 25 分钟", "Focus for 25 minutes"), #selector(toggleFocus))
         item(tr("提醒设置…", "Reminders…"), #selector(openReminderSettings))

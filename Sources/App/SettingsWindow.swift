@@ -400,6 +400,10 @@ struct SettingsView: View {
                     Button(tr("立即检查一次", "Check now")) { weatherResult = ""; onCheckWeather { weatherResult = $0 } }
                     Text(weatherResult).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
+                Toggle(tr("Claude 额度提醒", "Claude limit alerts"), isOn: $settings.claudeUsageAlerts)
+                Text(tr("读取 Claude Usage Widget 的数据：5 小时额度或每周额度用到 70%、90% 时提醒，5 小时额度恢复后告知。",
+                        "Uses the data of the Claude Usage Widget: alerts at 70 % and 90 % of the 5-hour or weekly limit, and when the 5-hour limit is back."))
+                    .font(.caption).foregroundStyle(.secondary)
             } footer: {
                 Text(tr("每 20 分钟检查一次“主人信息”中所在城市的预报：未来 3 小时可能下雨或下雪、未来 6 小时有雷暴、大雨、大雪或大风、傍晚时明天明显降温或升温或有雨时提醒；同类提醒有冷却时间。",
                         "Every 20 minutes the forecast for your city is checked: rain or snow within 3 hours; thunderstorms, heavy rain or snow, or strong wind within 6 hours; and in the evening a much colder, warmer or rainy tomorrow. Each kind of alert has a cool-down."))

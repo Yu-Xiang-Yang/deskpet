@@ -330,6 +330,44 @@ do {
     try? FileManager.default.removeItem(at: memFile)
 }
 
+// MARK: Claude usage (Claude Usage Widget files)
+
+do {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cuw-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    check(ClaudeUsage.load(from: dir) == nil, "No widget files: no usage")
+    let now = Date(timeIntervalSince1970: 1_792_570_000)
+    func writeQuota(five: Double, fiveReset: Double, week: Double, captured: Double) {
+        let json = #"{"fiveHour":{"usedPercent":\#(five),"resetsAt":\#(fiveReset)},"sevenDay":{"usedPercent":\#(week),"resetsAt":1793044799},"extras":[{"label":"Fable","window":{"resetsAt":1793044800,"usedPercent":0}}],"capturedAt":\#(captured)}"#
+        try? json.write(to: dir.appendingPathComponent("quota.json"), atomically: true, encoding: .utf8)
+    }
+    let today = ClaudeUsage.dayKey(now)
+    try? #"{"version":1,"days":{"\#(today)":{"cost":18.5,"tokens":1280000,"messages":12,"output":9000}}}"#
+        .write(to: dir.appendingPathComponent("history.json"), atomically: true, encoding: .utf8)
+    writeQuota(five: 3, fiveReset: 1_792_587_600, week: 4, captured: 1_792_569_900)
+    let u = ClaudeUsage.load(from: dir)
+    check(u?.quota?.fiveHour?.usedPercent == 3 && u?.quota?.extras.first?.label == "Fable" && u?.day(now)?.tokens == 1_280_000,
+          "Widget files read")
+    check(ClaudeUsage.summaryLines(u!, now: now).contains { $0.contains("1.3M") }, "Summary shows today's tokens")
+    check(ClaudeUsage.until(Date(timeIntervalSince1970: 1_792_587_600), now: now).contains("4"), "Reset countdown")
+
+    var st = ClaudeUsageAlertState()
+    check(ClaudeUsage.evaluate(u!, now: now, state: &st).isEmpty, "Low usage: no alert")
+    writeQuota(five: 72, fiveReset: 1_792_587_600, week: 4, captured: 1_792_569_900)
+    var alerts = ClaudeUsage.evaluate(ClaudeUsage.load(from: dir)!, now: now, state: &st)
+    check(alerts.count == 1 && { if case .nearLimit("fiveHour", 72, _) = alerts[0] { return true }; return false }(), "70 % alert (\(alerts))")
+    check(ClaudeUsage.evaluate(ClaudeUsage.load(from: dir)!, now: now, state: &st).isEmpty, "70 % alert only once per window")
+    writeQuota(five: 93, fiveReset: 1_792_587_600, week: 4, captured: 1_792_569_900)
+    alerts = ClaudeUsage.evaluate(ClaudeUsage.load(from: dir)!, now: now, state: &st)
+    check(alerts.count == 1 && ClaudeUsage.message(alerts[0], now: now).motion == .surprised, "90 % alert")
+    writeQuota(five: 1, fiveReset: 1_792_605_600, week: 4, captured: 1_792_569_900)
+    alerts = ClaudeUsage.evaluate(ClaudeUsage.load(from: dir)!, now: now, state: &st)
+    check(alerts == [.refilled], "New window after a used-up one: limit back (\(alerts))")
+    writeQuota(five: 95, fiveReset: 1_792_605_600, week: 4, captured: 1_792_560_000)
+    check(ClaudeUsage.evaluate(ClaudeUsage.load(from: dir)!, now: now, state: &st).isEmpty, "Out-of-date data: no alert")
+    try? FileManager.default.removeItem(at: dir)
+}
+
 // MARK: News / quotes / web page helpers
 
 do {

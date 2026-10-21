@@ -83,6 +83,7 @@ final class PetBrain {
         var s = "当前时间：\(f.string(from: Date()))"
         let city = settings.city.trimmingCharacters(in: .whitespacesAndNewlines)
         if !city.isEmpty, let weather = await Weather.brief(city) { s += "｜主人所在地天气：\(weather)" }
+        if let usage = ClaudeUsage.load(), let line = ClaudeUsage.contextLine(usage, now: Date()) { s += "｜\(line)" }
         return "[\(s)]"
     }
 
