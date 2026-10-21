@@ -61,7 +61,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         brain.onOpenApp = { [weak self] name in
             AppLauncher.open(name) { self?.pet.say($0, kind: "memory") }
         }
-        brain.onAddEvent = { [weak self] request in self?.confirmEvent(request) }
+        brain.onAddEvent = { [weak self] request in self?.addEvent(request) }
         brain.onAgentTask = { [weak self] task in self?.startAgentTask(task) }
         agent.onStatus = { [weak self] status in self?.pet.setStatus(status) }
         agent.ask = { [weak self] text, done in
@@ -235,25 +235,18 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         DispatchQueue.main.asyncAfter(deadline: .now() + (unlocked ? 0.05 : 1.0), execute: work)
     }
 
-    /// A calendar event from the chat is written only after the owner allows it on the card below the pet.
-    private func confirmEvent(_ request: EventRequest) {
-        guard let text = CalendarWatcher.describe(request) else {
-            pet.say(tr("没看懂日程的时间，换个说法试试？", "I couldn't read the event's time. Could you rephrase it?"), kind: "error")
-            return
-        }
-        let ask = { [weak self] in
+    /// A calendar event from the chat is written at once; macOS decides through its Calendars permission.
+    private func addEvent(_ request: EventRequest) {
+        let add = { [weak self] in
             guard let self else { return }
-            self.approval.ask(text, below: self.pet.panel) { yes in
-                self.pet.say(yes ? self.calendar.add(request) : tr("好的，不加了。", "OK, not added."), kind: "memory")
-            }
+            self.pet.say(self.calendar.add(request), kind: "memory")
         }
-        if CalendarWatcher.authorized { ask() } else { calendar.requestAccess { granted in
-            if granted { ask() } else { self.pet.say(CalendarWatcher.statusText, kind: "error") }
+        if CalendarWatcher.authorized { add() } else { calendar.requestAccess { [weak self] granted in
+            if granted { add() } else { self?.pet.say(CalendarWatcher.statusText, kind: "error") }
         } }
     }
 
-    /// An agent task starts at once: dsh's sandbox keeps it to the workspace, and its requests to go beyond it
-    /// come to the approval card.
+    /// An agent task starts at once, with full access: macOS and dsh decide what it may do.
     private func startAgentTask(_ task: String) {
         Task { @MainActor in
             do {

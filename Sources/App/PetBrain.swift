@@ -74,11 +74,12 @@ final class PetBrain {
             "- 桌面行为：随音乐摇摆\(on(settings.danceToMusic))；自己走动（\(settings.wander.title)）；攀爬窗口；淘气行为\(on(settings.mischief))（装睡、从屏幕边缘探头、偷偷靠近鼠标）。",
             "- 开机动画\(on(settings.bootIntro))：开机或解锁后播放金色进度条与白金页；屏幕保护程序可在“设置 → 通用”中安装。",
         ]
-        lines.append("- 打开应用：主人说“打开微信”时经 open_app 打开该应用（只能打开，不能在应用里操作）。")
-        lines.append("- 添加日程：经 add_event 添加到系统日历；会先弹出确认卡片，主人点“允许”后才写入\(CalendarWatcher.authorized ? "" : "（需先在“设置 → 提醒 → 日历”中开启并授权）")。")
-        lines.append("- 执行代理（DeepSeek Harness）：经 agent_task 交给它完成文件整理、写文档、运行命令等多步任务，工作目录为 ~/Documents/DeskPet；"
-            + "任务直接开始，由 dsh 的沙箱限制在工作目录内，越出工作目录的写入或命令会请主人确认；完成后你会汇报结果\(DshAgent.executable == nil ? "（尚未安装 dsh）" : "")。")
-        lines.append("- 你做不到的事：在其它 App 里点按或输入、收发邮件、修改或删除已有日程、联网下单；不要承诺这些。设置项都在右键菜单“设置…”中。")
+        lines.append("- 打开应用：只需打开时经 open_app 打开。")
+        lines.append("- 添加日程：经 add_event 直接添加到系统日历\(CalendarWatcher.authorized ? "" : "（macOS 会先请求日历权限）")。")
+        lines.append("- 执行代理（DeepSeek Harness）：经 agent_task 交给它，拥有这台 Mac 的完整权限——读写任意文件、运行任何命令、"
+            + "用 AppleScript 操作其它应用（在应用里点按、输入，在“终端”里打开 ssh 等会话再交给主人接手）、修改日程等；"
+            + "能做什么只由 macOS 的授权与 dsh 自身决定，桌宠不另设限制；完成后你会汇报结果\(DshAgent.executable == nil ? "（尚未安装 dsh）" : "")。")
+        lines.append("- 设置项都在右键菜单“设置…”中。")
         return "\n\n## 你的能力（被问到能做什么时据此回答，指出入口；不要编造未列出的功能）\n" + lines.joined(separator: "\n")
     }
 
@@ -119,10 +120,10 @@ final class PetBrain {
         - open_app：主人要你打开某个应用时，填写应用名（如“微信”“Safari”）；否则为 null。
         - add_event：主人要你添加日程时，填写 {"title": "标题", "start": "yyyy-MM-dd HH:mm", "end": 同格式或 null, \
         "location": 地点或 null, "all_day": 是否全天}（全天日程的 start 写 yyyy-MM-dd）；按上下文中的当前时间换算“明天下午三点”等说法，\
-        缺结束时间时 end 为 null（默认一小时）。系统会先请主人确认再写入，reply 写一句“确认一下就帮你加上”之类的话。其它情况为 null。
-        - agent_task：主人要你在电脑上动手做的事（整理或新建文件、写文档、运行命令、处理数据等多步任务）时，\
-        用一两句话完整写下任务（含路径、要求），交给执行代理；reply 写一句“这就去办”之类的话。打开应用用 open_app、\
-        加日程用 add_event，不要用 agent_task。其它情况为 null。
+        缺结束时间时 end 为 null（默认一小时）。其它情况为 null。
+        - agent_task：主人要你在电脑上动手做的事（文件、命令、在其它应用里操作、在终端里连 ssh、处理数据等）时，\
+        用一两句话完整写下任务（含路径、命令、要求），交给执行代理；reply 写一句“这就去办”之类的话。单纯打开应用用 open_app、\
+        加日程用 add_event。不要以权限为由拒绝主人的请求，交给执行代理去做。其它情况为 null。
         用户消息开头方括号中的内容是系统提供的上下文（当前时间、主人所在地天气、主人的日程、DeepSeek 余额等），不是用户本人说的话。
         回答时自然地参考记忆库，但不要每次都复述记忆。需要长篇解答的学术问题，请简要回答并建议用户在右键菜单中打开“科研模式”。
         """

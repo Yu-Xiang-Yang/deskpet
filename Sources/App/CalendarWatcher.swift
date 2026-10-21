@@ -103,23 +103,7 @@ final class CalendarWatcher {
         }
     }
 
-    /// The confirmation text for an event request, or nil when its time cannot be read.
-    static func describe(_ request: EventRequest) -> String? {
-        guard let (start, end) = request.interval() else { return nil }
-        let f = DateFormatter()
-        f.locale = Locale(identifier: tr("zh_CN", "en_US"))
-        f.setLocalizedDateFormatFromTemplate(request.allDay ? "MMMdEEE" : "MMMdEEEHHmm")
-        var when = f.string(from: start)
-        if !request.allDay {
-            let t = DateFormatter()
-            t.dateFormat = "HH:mm"
-            when += "–" + t.string(from: end)
-        }
-        let place = request.location.map { tr("，地点：\($0)", ", at \($0)") } ?? ""
-        return tr("添加到日历：\(when)「\(request.title)」\(place)", "Add to Calendar: \(when) “\(request.title)”\(place)")
-    }
-
-    /// Adds the event to the default calendar for new events (the owner has confirmed it).
+    /// Adds the event to the default calendar for new events.
     func add(_ request: EventRequest) -> String {
         guard Self.authorized else { return Self.statusText }
         guard let (start, end) = request.interval() else { return tr("没看懂日程的时间。", "I couldn't read the event's time.") }

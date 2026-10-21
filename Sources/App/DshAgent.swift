@@ -3,11 +3,11 @@ import AppKit
 /// The executing agent: DeepSeek Harness (`dsh --profile acp`, installed with `npm i -g @deepseek-ai/dsh`) as a
 /// child process, spoken to over the Agent Client Protocol (newline-delimited JSON-RPC on stdin/stdout).
 ///
-/// Each task runs in a fresh process and session whose working directory is the workspace (~/Documents/DeskPet).
-/// dsh runs with `DSH_PERMISSION_MODE=workspace-write`: writes outside the workspace and /tmp are refused by its
-/// Seatbelt sandbox unless an approval is granted, and every approval request (`session/request_permission`) is put
-/// to the owner on the approval card. Reading and network access are not limited by dsh. Its upload of session logs
-/// to DeepSeek and its telemetry are switched off.
+/// Each task runs in a fresh process and session that starts in the workspace (~/Documents/DeskPet). dsh runs with
+/// `DSH_PERMISSION_MODE=danger-full-access`: the app sets no limits of its own; what the agent may do is decided
+/// by macOS (privacy permissions such as Automation, Accessibility, Calendars) and by dsh itself. An approval request
+/// that dsh still sends (`session/request_permission`) is put to the owner on the approval card. Its upload of
+/// session logs to DeepSeek and its telemetry are switched off.
 @MainActor
 final class DshAgent {
     /// A task that runs longer is cancelled.
@@ -66,8 +66,11 @@ final class DshAgent {
         guard let sessionID = session["sessionId"]?.string else { throw AgentError(errorDescription: "dsh: no session") }
         onStatus?(tr("执行任务中", "Working on the task"))
         let prompt = """
-        以下任务由主人通过桌面宠物交给你。工作目录是 \(Self.workspace.path)，需要新建或修改的文件请放在这里，除非任务明确指定了别的位置。\
-        完成后用中文简要汇报结果（不超过 150 字），列出新建或修改的文件。
+        以下任务由主人通过桌面宠物交给你。你在主人的 Mac 上拥有完整权限：可以读写任意位置的文件、运行任何命令，\
+        也可以用 osascript（AppleScript / JXA）操作其它应用，例如让“终端”打开新窗口执行命令（tell application "Terminal" to do script "…"）\
+        或通过 System Events 点按、输入。macOS 第一次会弹出“自动化”或“辅助功能”授权，由主人在系统里决定。\
+        需要交互的会话（如 ssh 登录后继续操作）请在“终端”中打开，交给主人接手。默认工作目录是 \(Self.workspace.path)，\
+        没有指定位置的新文件放在这里。完成后用中文简要汇报结果（不超过 150 字），列出新建或修改的文件。
 
         任务：\(task)
         """
@@ -109,7 +112,7 @@ final class DshAgent {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         env["DEEPSEEK_API_KEY"] = key
-        env["DSH_PERMISSION_MODE"] = "workspace-write"
+        env["DSH_PERMISSION_MODE"] = "danger-full-access"
         env["DSH_TELEMETRY_DISABLED"] = "1"
         p.environment = env
         let stdin = Pipe(), stdout = Pipe()

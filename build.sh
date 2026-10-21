@@ -51,6 +51,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSAudioCaptureUsageDescription</key><string>桌宠通过分析正在播放的声音找出节拍，跟着音乐摇摆。声音只在本机实时分析，不会录制或保存。 DeskPet analyses the sound being played to find the beat and sway along; nothing is recorded or stored.</string>
     <key>NSCalendarsFullAccessUsageDescription</key><string>桌宠读取日历中的日程，在开始前提醒你。日历不会被修改；只有在设置中开启后，日程才会随对话发给所选的模型服务。 DeskPet reads your calendar events to remind you before they start; nothing is changed, and events reach the chosen model service only if enabled in the settings.</string>
     <key>NSCalendarsUsageDescription</key><string>桌宠读取日历中的日程，在开始前提醒你。 DeskPet reads your calendar events to remind you before they start.</string>
+    <key>NSAppleEventsUsageDescription</key><string>桌宠的执行代理通过 AppleScript 操作其它应用（例如在“终端”中打开命令）。 DeskPet's agent uses AppleScript to work in other apps (for example to run a command in Terminal).</string>
     <key>NSHighResolutionCapable</key><true/>
 </dict>
 </plist>
