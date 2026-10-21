@@ -33,22 +33,30 @@ final class BootIntro: NSObject, WKScriptMessageHandler {
         self.completion = completion
         var comps = URLComponents(url: AppSchemeHandler.url("web/intro.html"), resolvingAgainstBaseURL: false)!
         comps.queryItems = Self.systemInfo().map { URLQueryItem(name: $0.key, value: $0.value) }
-        for screen in NSScreen.screens {
-            let w = IntroWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
-            w.level = .screenSaver
+        // DESKPET_INTRO_WINDOWED (tests): a small window in a corner that takes neither focus, keys nor the cursor.
+        let windowed = ProcessInfo.processInfo.environment["DESKPET_INTRO_WINDOWED"] != nil
+        for screen in windowed ? Array(NSScreen.screens.prefix(1)) : NSScreen.screens {
+            let frame = windowed ? NSRect(x: screen.frame.minX + 20, y: screen.frame.minY + 20, width: 480, height: 270) : screen.frame
+            let w = IntroWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+            w.level = windowed ? .floating : .screenSaver
             w.backgroundColor = .black
             w.isOpaque = true
             w.isReleasedWhenClosed = false
             w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
             let web = WKWebView.make(handlerName: "boot", handler: self)
             web.setValue(false, forKey: "drawsBackground")
-            web.frame = NSRect(origin: .zero, size: screen.frame.size)
+            web.frame = NSRect(origin: .zero, size: frame.size)
             web.autoresizingMask = [.width, .height]
             w.contentView = web
             if let url = comps.url { web.load(URLRequest(url: url)) }
-            w.setFrame(screen.frame, display: true)
+            w.setFrame(frame, display: true)
             w.orderFrontRegardless()
             windows.append(w)
+        }
+        NSLog("DeskPet intro: %d window(s)%@", windows.count, windowed ? " (windowed)" : "")
+        if windowed {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.hardTimeout) { [weak self] in self?.finish() }
+            return
         }
         windows.first?.makeKey()
         NSApp.activate(ignoringOtherApps: true)
@@ -70,12 +78,13 @@ final class BootIntro: NSObject, WKScriptMessageHandler {
         finishing = true
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        NSLog("DeskPet intro: finishing")
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.6
             windows.forEach { $0.animator().alphaValue = 0 }
         }, completionHandler: {
             MainActor.assumeIsolated {
-                NSCursor.unhide()
+                if ProcessInfo.processInfo.environment["DESKPET_INTRO_WINDOWED"] == nil { NSCursor.unhide() }
                 self.windows.forEach { $0.orderOut(nil) }
                 self.windows = []
                 self.finishing = false
@@ -98,9 +107,23 @@ final class BootIntro: NSObject, WKScriptMessageHandler {
         let settings = AppSettings.shared
         let called = settings.userName.trimmingCharacters(in: .whitespaces)
         let name = called.isEmpty ? (NSFullUserName().split(separator: " ").first.map(String.init) ?? NSUserName()) : called
-        return [
+        let ai = settings.petName.trimmingCharacters(in: .whitespaces).isEmpty ? "DeskPet" : settings.petName
+        let r = settings.reminders
+        let routines = (r.mealsEnabled ? r.mealTimes.count : 0) + (r.workEnabled ? 2 : 0) + (r.sedentaryEnabled ? 1 : 0) + (r.waterEnabled ? 1 : 0)
+        var info = [
+            "ai": ai,
+            "aiLatin": latinCapitals(ai),
+            "memories": "\(MemoryStore.shared.items.count)",
+            "reminders": "\(routines)",
+            "model": settings.selectedModel?.name ?? "",
+        ]
+        if let usage = ClaudeUsage.load(), usage.quotaIsFresh(now: Date()), let q = usage.quota {
+            info["claude"] = [q.fiveHour.map { "5h \(Int($0.usedPercent.rounded()))%" }, q.sevenDay.map { "week \(Int($0.usedPercent.rounded()))%" }]
+                .compactMap { $0 }.joined(separator: " · ")
+        }
+        return info.merging([
             "name": name,
-            "greeting": tr("欢迎回来，\(name)", "Welcome back, \(name)"),
+            "greeting": tr("\(ai)已上线 · 欢迎回来，\(name)", "\(ai) is online · Welcome back, \(name)"),
             "os": os,
             "host": Host.current().localizedName ?? "Mac",
             "chip": sysctlString("machdep.cpu.brand_string") ?? "Apple Silicon",
@@ -108,7 +131,15 @@ final class BootIntro: NSObject, WKScriptMessageHandler {
             "darwin": darwin,
             "displays": "\(NSScreen.screens.count)",
             "user": NSUserName(),
-        ]
+        ]) { $1 }
+    }
+
+    /// "墨笃" → "MODU": the name in Latin capitals for the large title (Chinese via pinyin, without tones).
+    private static func latinCapitals(_ name: String) -> String {
+        let latin = name.applyingTransform(.toLatin, reverse: false)?.applyingTransform(.stripDiacritics, reverse: false) ?? name
+        let letters = latin.uppercased().filter { $0.isLetter || $0.isNumber || $0 == " " }
+        let compact = name.unicodeScalars.allSatisfy(\.isASCII) ? letters : letters.replacingOccurrences(of: " ", with: "")
+        return compact.isEmpty ? "DESKPET" : compact
     }
 
     private static func sysctlString(_ key: String) -> String? {

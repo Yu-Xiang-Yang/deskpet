@@ -24,6 +24,12 @@ const INFO = {
   displays: Q.get('displays') || '1',
   user: Q.get('user') || 'user',
   greeting: Q.get('greeting') || 'Welcome back',
+  ai: Q.get('ai') || 'DeskPet',              // the pet's name as shown
+  aiLatin: Q.get('aiLatin') || 'DESKPET',    // the same in Latin capitals, for the large title
+  memories: Q.get('memories'),               // optional live details for the boot log
+  reminders: Q.get('reminders'),
+  claude: Q.get('claude'),
+  model: Q.get('model'),
 };
 const LOOP = Q.has('loop');
 const native = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.boot;
@@ -87,19 +93,21 @@ const scan = (() => {
 const LOG = [
   `Darwin Kernel ${INFO.darwin} / arm64 loaded`,
   `${INFO.chip} · ${INFO.mem} unified memory verified`,
-  `Mounting /System/Volumes/Data`,
   `Display pipeline online (${INFO.displays})`,
-  `Decrypting user keychain`,
-  `Establishing secure channel`,
+  `Loading core personality: ${INFO.ai}`,
+  INFO.memories != null && `Memory bank restored: ${INFO.memories} entries`,
+  INFO.reminders != null && `Reminder scheduler armed: ${INFO.reminders} routines`,
+  INFO.claude && `Claude link established: ${INFO.claude}`,
+  INFO.model && `Rendering body: ${INFO.model}`,
   `Host ${INFO.host} registered`,
-  `Verifying identity: ${INFO.user}`,
-];
+  `Verifying operator: ${INFO.user}`,
+].filter(Boolean);
 const hex = n => (n >>> 0).toString(16).toUpperCase().padStart(4, '0').slice(-4);
 function term(t) {
   baseT();
   x.fillStyle = '#000'; x.fillRect(0, 0, VW, VH);
   x.font = `13px ${MONO}`; x.fillStyle = '#1F7A3A'; x.textAlign = 'left';
-  x.fillText(`${INFO.os} — secure boot`, 60, 44);
+  x.fillText(`${INFO.aiLatin} CORE  //  ${INFO.os} — secure boot`, 60, 44);
   // 右侧十六进制流
   x.fillStyle = 'rgba(47,191,90,.22)';
   const seed = Math.floor(t * 20);
@@ -109,7 +117,7 @@ function term(t) {
     x.fillText(row, VW - 420, 80 + i * 26);
   }
   x.font = `16px ${MONO}`;
-  const n = Math.min(LOG.length, Math.floor(t / 0.12) + 1);
+  const n = Math.min(LOG.length, Math.floor(t / 0.11) + 1);
   for (let i = 0; i < n; i++) {
     x.fillStyle = i === n - 1 ? '#8CFFAA' : '#2FBF5A';
     x.fillText('[ OK ] ' + LOG[i], 60, 90 + i * 30);
@@ -118,8 +126,8 @@ function term(t) {
   }
   const yWarn = 90 + LOG.length * 30 + 12;
   x.fillStyle = '#FF4D6D';
-  if (t > 1.1) x.fillText('[ !! ] Unknown high-priority signal detected', 60, yWarn);
-  if (t > 1.3) x.fillText(`[ !! ] Override sequence ... ${Math.floor(cl((t - 1.3) / .35) * 100)}%`, 60, yWarn + 30);
+  if (t > 1.15) x.fillText('[ !! ] Core personality awakening', 60, yWarn);
+  if (t > 1.3) x.fillText(`[ !! ] Synchronizing ${INFO.aiLatin} ... ${Math.floor(cl((t - 1.3) / .35) * 100)}%`, 60, yWarn + 30);
   if (Math.floor(t * 6) % 2) { x.fillStyle = '#8CFFAA'; x.fillRect(60, yWarn + 46, 10, 18); }
 }
 
@@ -140,11 +148,11 @@ function glitch(t) {
     x.drawImage(NOISE[Math.random() * 4 | 0], xx, yy);
   x.globalAlpha = 1;
   x.font = `bold 96px "Helvetica Neue", Helvetica, Arial`; x.textAlign = 'center';
-  const s = (Math.random() - .5) * 24;
+  const s = (Math.random() - .5) * 24, AW = 'CORE AWAKENING';
   x.globalCompositeOperation = 'lighter';
-  x.fillStyle = '#ff2a6d'; x.fillText('SYSTEM OVERRIDE', CX - 7 + s, CY + 30);
-  x.fillStyle = '#05d9e8'; x.fillText('SYSTEM OVERRIDE', CX + 7 - s, CY + 36);
-  x.fillStyle = '#e8fbff'; x.fillText('SYSTEM OVERRIDE', CX, CY + 33);
+  x.fillStyle = '#ff2a6d'; x.fillText(AW, CX - 7 + s, CY + 30);
+  x.fillStyle = '#05d9e8'; x.fillText(AW, CX + 7 - s, CY + 36);
+  x.fillStyle = '#e8fbff'; x.fillText(AW, CX, CY + 33);
   x.globalCompositeOperation = 'source-over';
   x.fillStyle = scan; x.fillRect(0, 0, VW, VH);
   if (k > .7) { x.fillStyle = `rgba(255,252,244,${cl((k - .7) / .3)})`; x.fillRect(0, 0, VW, VH); }
@@ -258,11 +266,11 @@ function holy(s) {
       const dy = (1 - tp) * 14;
       x.save(); x.globalAlpha = tp;
       x.font = `12px ${MONO}`; x.fillStyle = 'rgba(122,92,36,.8)';
-      spaced('— AUTHORIZATION CONFIRMED —', CX, top + 30, 5);
+      spaced('— OPERATOR AUTHORIZED · ALL SYSTEMS NOMINAL —', CX, top + 30, 5);
       const lg = x.createLinearGradient(CX - 520, 0, CX + 520, 0);
       lg.addColorStop(0, '#7A5C24'); lg.addColorStop(.5, '#B8914A'); lg.addColorStop(1, '#7A5C24');
       x.fillStyle = lg; x.font = `64px ${SERIF}`;
-      spaced(`WELCOME BACK, ${INFO.name.toUpperCase()}`, CX, CY + 20 + dy, 12);
+      spaced(`${INFO.aiLatin}  ·  ONLINE`, CX, CY + 20 + dy, 14);
       x.font = `300 16px ${CJK}`; x.fillStyle = 'rgba(122,92,36,.85)';
       spaced(`${INFO.greeting}  ·  ${INFO.os}`, CX, bot - 20, 3);
       x.restore();

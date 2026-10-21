@@ -11,6 +11,13 @@
 <div id="bubbles"></div>
 
 <div id="stage">
+  <!-- Research mode: a slowly turning ring of gold lines behind the character (no hit area). -->
+  <svg id="aura" viewBox="-100 -100 200 200" aria-hidden="true">
+    <circle r="92" class="thin"/>
+    <circle r="84" class="ticks"/>
+    <circle r="70" class="arc"/>
+    <g class="marks"><path d="M0,-97 l3,5 -3,5 -3,-5z"/><path d="M0,97 l3,-5 -3,-5 -3,5z"/><path d="M-97,0 l5,3 5,-3 -5,-3z"/><path d="M97,0 l-5,3 -5,-3 5,-3z"/></g>
+  </svg>
   <!-- #actor squashes and stretches during hops; the Live2D canvas inside keeps its own animation. -->
   <div id="actor">
     <canvas id="live2d"></canvas>

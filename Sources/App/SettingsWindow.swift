@@ -84,6 +84,7 @@ struct SettingsView: View {
             Section(tr("角色", "Character")) {
                 TextField(tr("桌宠名字", "Pet name"), text: $settings.petName)
                 TextField(tr("对你的称呼（可留空）", "How the pet addresses you (optional)"), text: $settings.userName)
+                TextField(tr("科研模式名称（可留空，如 EVA）", "Research mode name (optional, e.g. EVA)"), text: $settings.researchModeName)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(tr("人设", "Persona")).font(.caption).foregroundStyle(.secondary)
                     TextEditor(text: $settings.persona)

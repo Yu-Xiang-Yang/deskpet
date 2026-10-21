@@ -66,6 +66,8 @@ final class AppSettings: ObservableObject {
     @Published var autoMemory: Bool { didSet { defaults.set(autoMemory, forKey: "autoMemory") } }
     /// Announce weather changes for the owner's city.
     @Published var weatherAlerts: Bool { didSet { defaults.set(weatherAlerts, forKey: "weatherAlerts") } }
+    /// Name of the research mode as the pet's highest-performance state (e.g. "EVA"); empty: plain "research mode".
+    @Published var researchModeName: String { didSet { defaults.set(researchModeName, forKey: "researchModeName") } }
     /// The login intro (terminal log → glitch → white-and-gold welcome) once after every system start.
     @Published var bootIntro: Bool { didSet { defaults.set(bootIntro, forKey: "bootIntro") } }
     /// Announce Claude limits that run low (data from the Claude Usage Widget).
@@ -150,6 +152,7 @@ final class AppSettings: ObservableObject {
         weatherAlerts = defaults.bool(forKey: "weatherAlerts")
         claudeUsageAlerts = defaults.bool(forKey: "claudeUsageAlerts")
         bootIntro = defaults.bool(forKey: "bootIntro")
+        researchModeName = defaults.string(forKey: "researchModeName") ?? ""
         followBeat = defaults.bool(forKey: "followBeat")
     }
 

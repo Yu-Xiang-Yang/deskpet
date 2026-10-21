@@ -33,7 +33,10 @@ final class ResearchEngine {
     /// The research prompt plus the owner's background (stable until the profile is edited).
     var systemPrompt: String {
         let owner = settings.ownerSection + MemoryStore.shared.promptSection
-        return Self.basePrompt + (owner.isEmpty ? "" : owner + "\n回答时结合主人的背景与记忆调整深度与侧重点。")
+        let mode = settings.researchModeName.trimmingCharacters(in: .whitespaces)
+        let persona = mode.isEmpty ? "" : "你是桌面助手「\(settings.petName)」的 \(mode) 模式，即其最高运算状态：语气冷静、克制、精确，"
+            + "不寒暄、不使用颜文字，以结论、证据与数据说话。\n"
+        return persona + Self.basePrompt + (owner.isEmpty ? "" : owner + "\n回答时结合主人的背景与记忆调整深度与侧重点。")
     }
 
     static let basePrompt = """

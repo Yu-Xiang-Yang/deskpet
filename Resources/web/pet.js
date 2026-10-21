@@ -601,6 +601,7 @@
     hitArea,
     setResearch(on) {
       researchOn = !!on;
+      root.classList.toggle("research", researchOn);
       if (!researchOn) bubbles.querySelectorAll(".bubble.answer").forEach((b) => dismiss(b, true));
     },
     setDragging(on) { if (on) play("surprised"); },

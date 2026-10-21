@@ -34,6 +34,31 @@ html, body {
 
 #actor { position: absolute; inset: 0; transform-origin: 50% 100%; }
 
+/* Research mode: a gold ring behind the character, fading in and turning slowly. */
+#aura {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 300px;
+  height: 300px;
+  margin: -150px 0 0 -150px;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 0.8s ease, transform 0.8s cubic-bezier(.2, .8, .2, 1);
+  overflow: visible;
+}
+.research #aura { opacity: 1; transform: none; }
+#aura { filter: drop-shadow(0 0 2px rgba(255, 236, 190, 0.95)) drop-shadow(0 0 6px rgba(214, 170, 80, 0.55)); }
+#aura circle { fill: none; stroke: rgba(196, 150, 60, 0.85); }
+#aura .thin { stroke-width: 0.9; }
+#aura .ticks { stroke-width: 4; stroke-dasharray: 0.8 4.4; stroke: rgba(196, 150, 60, 0.75); }
+#aura .arc { stroke-width: 1.8; stroke-dasharray: 120 40 30 40; stroke: rgba(222, 182, 96, 0.95); }
+#aura .marks path { fill: rgba(196, 150, 60, 0.95); }
+.research #aura .ticks, .research #aura .marks { animation: aura-turn 40s linear infinite; transform-origin: 0 0; }
+.research #aura .arc { animation: aura-turn 24s linear infinite reverse; transform-origin: 0 0; }
+@keyframes aura-turn { to { transform: rotate(360deg); } }
+
 /* Hop phases, driven by the native shell while it moves the window along the arc. */
 .hop-crouch #actor { transform: scale(1.07, 0.88); transition: transform 0.16s ease-out; }
 .hop-air #actor { transform: scale(0.95, 1.06); transition: transform 0.12s ease-out; }

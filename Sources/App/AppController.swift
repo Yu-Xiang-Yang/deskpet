@@ -217,13 +217,19 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         if on {
             researchConversationID = nil
             pet.play(.nod)
-            pet.say(tr("进入科研模式啦，有什么问题尽管问～完整回答都会存进消息列表。",
-                        "Research mode on — ask away! Full answers are kept in the message list."))
+            let mode = settings.researchModeName.trimmingCharacters(in: .whitespaces)
+            pet.say(mode.isEmpty
+                ? tr("进入科研模式啦，有什么问题尽管问～完整回答都会存进消息列表。",
+                     "Research mode on — ask away! Full answers are kept in the message list.")
+                : tr("\(mode) 模式启动。全部算力已切换至科研任务，请提出问题；完整回答存入消息列表。",
+                     "\(mode) mode engaged. All capacity is on research; ask away. Full answers go to the message list."))
             showChat(activating: false)
         } else {
             if engine.isBusy { engine.cancel() }
             pet.play(.wave)
-            pet.say(tr("退出科研模式，休息一下吧～", "Research mode off. Time for a break~"))
+            let mode = settings.researchModeName.trimmingCharacters(in: .whitespaces)
+            pet.say(mode.isEmpty ? tr("退出科研模式，休息一下吧～", "Research mode off. Time for a break~")
+                                 : tr("\(mode) 模式解除，回到日常状态。休息一下吧～", "\(mode) mode released. Back to everyday mode — take a break~"))
         }
         if chatPanel.isVisible { showChat(activating: false) }  // refresh the placeholder
     }
@@ -538,7 +544,9 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             return i
         }
         item(tr("和我聊天", "Chat"), #selector(openChat))
-        item(tr("科研模式", "Research mode"), #selector(toggleResearchMode)).state = researchMode ? .on : .off
+        let modeName = settings.researchModeName.trimmingCharacters(in: .whitespaces)
+        item(modeName.isEmpty ? tr("科研模式", "Research mode") : tr("科研模式（\(modeName)）", "Research mode (\(modeName))"),
+             #selector(toggleResearchMode)).state = researchMode ? .on : .off
         if researchMode {
             item(tr("开始新的科研话题", "New research topic"), #selector(newResearchTopic))
             item(tr("联网检索（较慢）", "Search the web (slower)"), #selector(toggleResearchSearch)).state = engine.webSearch ? .on : .off
