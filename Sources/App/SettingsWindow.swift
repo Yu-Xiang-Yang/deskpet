@@ -154,6 +154,10 @@ struct SettingsView: View {
                 }
                 Text(tr("单击桌宠身体也可打开聊天框；单击头部是摸头。", "A click on the pet's body also opens the chat box; a click on its head pets it."))
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle(tr("开机动画", "Login intro"), isOn: $settings.bootIntro)
+                Text(tr("每次开机后，桌宠第一次启动时全屏播放约 6 秒：终端自检 → 故障转场 → 白金欢迎页；按任意键或点击可跳过。右键菜单可随时预览。",
+                        "After each system start, the pet's first launch plays a 6-second full-screen intro: terminal log → glitch → white-and-gold welcome; any key or click skips it. The context menu plays it any time."))
+                    .font(.caption).foregroundStyle(.secondary)
                 Toggle(tr("登录时启动", "Launch at login"), isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, on in
                         if !LoginItem.set(on) { launchAtLogin = LoginItem.enabled }

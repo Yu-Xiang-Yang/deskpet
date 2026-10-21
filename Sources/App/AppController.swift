@@ -29,6 +29,10 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private var wanderTimer: Timer?
     private lazy var mischief = Mischief(pet: pet)
     private lazy var climber = Climber(pet: pet)
+    private let bootIntro = BootIntro()
+    /// While the login intro plays, the pet's greeting waits.
+    private var introPlaying = false
+    private var petReady = false
     private let music = MusicMonitor()
     private var lastMusicRemark = Date.distantPast
     private var nextWander = Date.distantFuture
@@ -104,6 +108,10 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         wanderTimer = timer
 
         installTestHooks()
+        if BootIntro.dueThisBoot, ProcessInfo.processInfo.environment["DESKPET_DIR"] == nil {
+            BootIntro.markPlayedThisBoot()
+            playIntro()
+        }
 
         // First launch without a key: open the model settings.
         if !Keychain.hasValue(account: "anthropic") && !Keychain.hasValue(account: "openai") {
@@ -122,11 +130,26 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
 
     func petDidBecomeReady(mode: String) {
         pet.setResearch(researchMode)
-        if !greeted {
+        petReady = true
+        if !greeted, !introPlaying {
             greeted = true
             brain.greet()
             climber.ownerDropped()  // still standing on the window where it was left?
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.runDailyTasksIfDue() }
+        }
+    }
+
+    /// The login intro on every screen; afterwards the pet waves, meows and says hello.
+    @objc private func playIntro() {
+        guard !introPlaying else { return }
+        introPlaying = true
+        chatPanel.dismiss()
+        bootIntro.play { [weak self] in
+            guard let self else { return }
+            self.introPlaying = false
+            self.pet.play(.wave)
+            self.pet.meow(.meow)
+            if self.petReady { self.petDidBecomeReady(mode: "") }
         }
     }
 
@@ -358,6 +381,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
                 else if command == "pat" { self.petDidClick(area: "head", clickCount: 1) }
                 else if command == "climb" { self.climber.climbNow() }
                 else if command == "usage" { self.reportClaudeUsage() }
+                else if command == "intro" { self.playIntro() }
                 else if command == "down" { self.climber.jumpDown() }
                 else if command.hasPrefix("meow:") { self.pet.meow(MeowKind(rawValue: String(command.dropFirst(5))) ?? .meow) }
             }
@@ -531,6 +555,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         menu.addItem(.separator())
         item(reminders.focusRunning ? tr("停止专注计时", "Stop focus timer") : tr("开始专注 25 分钟", "Focus for 25 minutes"), #selector(toggleFocus))
         item(tr("提醒设置…", "Reminders…"), #selector(openReminderSettings))
+        item(tr("播放开机动画", "Play the login intro"), #selector(playIntro))
         item(tr("设置…", "Settings…"), #selector(openSettings), ",")
         menu.addItem(.separator())
         let layer = NSMenuItem(title: tr("显示层级", "Window layer"), action: nil, keyEquivalent: "")
