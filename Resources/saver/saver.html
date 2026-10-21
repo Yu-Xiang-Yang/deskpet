@@ -87,6 +87,22 @@ function spaced(text, cx, y, gap, align = 'center') {
   ch.forEach((c, i) => { x.fillText(c, p, y); p += ws[i] + gap; });
 }
 function gold(a) { return `rgba(${GOLD},${a})`; }
+// Up to `max` lines of at most `width`, the last one clipped. Lines break at the last space that fits (a " · "
+// separator is dropped at the break), otherwise anywhere, as CJK text allows.
+function wrap(text, width, max) {
+  const lines = [];
+  let rest = [...text];
+  while (rest.length && lines.length < max - 1 && x.measureText(rest.join('')).width > width) {
+    let n = rest.length;
+    while (n > 1 && x.measureText(rest.slice(0, n).join('')).width > width) n--;
+    const space = rest.slice(0, n + 1).lastIndexOf(' ');
+    if (space > n / 2) n = space;
+    lines.push(rest.slice(0, n).join('').replace(/[\s·]+$/, '')); rest = rest.slice(n);
+    while (rest[0] === ' ' || rest[0] === '·') rest.shift();
+  }
+  if (rest.length) lines.push(fit(rest.join(''), width));
+  return lines;
+}
 function fit(text, width) {
   if (x.measureText(text).width <= width) return text;
   const ch = [...text];
@@ -266,12 +282,19 @@ function frame(now) {
   x.font = `11px ${MONO}`; x.textAlign = 'left'; x.fillStyle = gold(.85);
   x.fillText(ZH ? '任务日志' : 'TASK LOG', 64, baseY - 7 * 20 - 12);
   x.strokeStyle = gold(.3); x.beginPath(); x.moveTo(64, baseY - 7 * 20 - 4); x.lineTo(64 + 300, baseY - 7 * 20 - 4); x.stroke();
-  log.forEach((e, i) => {
-    const fade = cl((t - e.born) / .5) * (.35 + .65 * (i + 1) / log.length), y = baseY - (log.length - 1 - i) * 20;
-    x.fillStyle = gold(.45 * fade); x.fillText(e.at, 64, y);
-    x.fillStyle = `rgba(240,226,196,${.85 * fade})`; x.font = `12px ${CJK}`;
-    x.fillText(fit(e.text, Math.min(380, CX - fw - gap - 170 - 140)), 140, y); x.font = `11px ${MONO}`;
-  });
+  // Newest at the bottom; a long entry takes two lines, older entries give way at the top.
+  const textW = Math.min(380, CX - fw - gap - 170 - 140);
+  let y = baseY;
+  for (let i = log.length - 1; i >= 0; i--) {
+    const e = log[i], fade = cl((t - e.born) / .5) * (.35 + .65 * (i + 1) / log.length);
+    x.font = `12px ${CJK}`;
+    const lines = wrap(e.text, textW, 2), top = y - (lines.length - 1) * 16;
+    if (top < baseY - 6 * 20 - 2) break;
+    x.fillStyle = `rgba(240,226,196,${.85 * fade})`;
+    lines.forEach((l, k) => x.fillText(l, 140, top + k * 16));
+    x.font = `11px ${MONO}`; x.fillStyle = gold(.45 * fade); x.fillText(e.at, 64, top);
+    y = top - 20;
+  }
   }
 
   // Lower right: the system.

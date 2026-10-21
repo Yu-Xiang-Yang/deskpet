@@ -1,9 +1,9 @@
 import AppKit
 import WebKit
 
-/// The login intro (web/intro.html: terminal log → glitch → white-and-gold sanctum; after an unlock a gold
-/// progress bar where the password field was → sanctum) on every screen, above all windows. It ends by itself
-/// after about 6 s, on any key or click, and at the latest after 12 s.
+/// The login intro (web/intro.html: a gold progress bar where the password field of the login or lock screen was →
+/// white-and-gold sanctum) on every screen, above all windows. It ends by itself after about 6 s, on any key or
+/// click, and at the latest after 12 s.
 @MainActor
 final class BootIntro: NSObject, WKScriptMessageHandler {
     private var windows: [NSWindow] = []
