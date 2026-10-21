@@ -173,6 +173,7 @@
 
   function setBusy(on) {
     busy = !!on;
+    if (window.holy) window.holy.setBusy(busy);
     sendBtn.textContent = busy ? S.stop : S.send;
     sendBtn.classList.toggle("stop", busy);
   }

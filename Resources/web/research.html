@@ -5,11 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Research</title>
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
-<link rel="stylesheet" href="vendor/hljs/github.min.css" media="(prefers-color-scheme: light)">
-<link rel="stylesheet" href="vendor/hljs/github-dark.min.css" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="vendor/hljs/github.min.css">
 <link rel="stylesheet" href="research.css">
 </head>
 <body>
+<!-- The turning white-and-gold wheel behind everything (holy.js) -->
+<div id="rays" aria-hidden="true"></div>
+<svg id="holy" aria-hidden="true"></svg>
+
 <aside id="sidebar">
   <div class="side-head">
     <input id="search" type="search" placeholder="搜索对话标题">
@@ -40,6 +43,11 @@
   </footer>
 </main>
 
+<!-- The whale girl (DeepSeek-tan, installed separately) and Claude-chan in the lower corners -->
+<div class="mascot" id="whale"><img src="../characters/whale-girl/whale-girl-1200.png" alt=""></div>
+<div class="mascot" id="claude"><img id="claudeImg" src="../characters/bundle/claude-musume/idle.png" alt=""></div>
+
+<script src="holy.js"></script>
 <script src="vendor/marked.min.js"></script>
 <script src="vendor/purify.min.js"></script>
 <script src="vendor/katex/katex.min.js"></script>
