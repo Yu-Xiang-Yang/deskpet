@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 ///   /web/…              → Contents/Resources/web
 ///   /models/bundle/…    → Contents/Resources/models
 ///   /models/user/…      → ~/Library/Application Support/DeskPet/models
+///   /characters/bundle/… → Contents/Resources/characters
 ///   /characters/…       → ~/Library/Application Support/DeskPet/characters
 /// Using one custom origin lets WebGL load model textures without file:// restrictions.
 final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
@@ -13,6 +14,7 @@ final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
 
     static var webRoot: URL { Bundle.main.resourceURL!.appendingPathComponent("web", isDirectory: true) }
     static var bundledModels: URL { Bundle.main.resourceURL!.appendingPathComponent("models", isDirectory: true) }
+    static var bundledCharacters: URL { Bundle.main.resourceURL!.appendingPathComponent("characters", isDirectory: true) }
 
     static func url(_ path: String) -> URL { URL(string: "\(scheme)://app/\(path)")! }
 
@@ -52,6 +54,8 @@ final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
             root = bundledModels; rest = parts.dropFirst(2)
         case "models" where parts.count > 2 && parts[1] == "user":
             root = AppPaths.userModelsDir; rest = parts.dropFirst(2)
+        case "characters" where parts.count > 2 && parts[1] == "bundle":
+            root = bundledCharacters; rest = parts.dropFirst(2)
         case "characters":
             root = AppPaths.charactersDir; rest = parts.dropFirst()
         default:
@@ -94,12 +98,14 @@ extension WKWebView {
     }
 }
 
-/// Live2D models found in the bundle and in the user's model directory.
+/// Live2D models found in the bundle and in the user's model directory, and sprite characters (a folder of
+/// pictures, one per expression, described by a character.json) in the bundle and the user's character directory.
 struct PetModel: Identifiable, Equatable {
-    var id: String          // "bundle/<dir>" or "user/<dir>"
+    var id: String          // "bundle/<dir>", "user/<dir>" (Live2D) or "sprite/<dir>"
     var name: String
-    var modelURL: URL       // deskpet:// URL of the *.model3.json
+    var modelURL: URL       // deskpet:// URL of the *.model3.json, or of the character.json
     var map: JSON?
+    var sprite = false
 
     static var cubismCoreInstalled: Bool {
         FileManager.default.fileExists(atPath: AppSchemeHandler.webRoot.appendingPathComponent("vendor/live2dcubismcore.min.js").path)
@@ -120,6 +126,17 @@ struct PetModel: Identifiable, Equatable {
                 let map = (try? Data(contentsOf: dir.appendingPathComponent("pet-map.json"))).flatMap { try? JSON.parse($0) }
                 result.append(PetModel(id: "\(source)/\(dir.lastPathComponent)", name: map?["name"]?.string ?? dir.lastPathComponent,
                                        modelURL: AppSchemeHandler.url("models/\(source)/\(encoded)"), map: map))
+            }
+        }
+        for (prefix, root) in [("characters/bundle", AppSchemeHandler.bundledCharacters), ("characters", AppPaths.charactersDir)] {
+            let dirs = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+            for dir in dirs.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                let file = dir.appendingPathComponent("character.json")
+                guard let map = (try? Data(contentsOf: file)).flatMap({ try? JSON.parse($0) }),
+                      !result.contains(where: { $0.id == "sprite/\(dir.lastPathComponent)" }) else { continue }
+                let name = dir.lastPathComponent.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? dir.lastPathComponent
+                result.append(PetModel(id: "sprite/\(dir.lastPathComponent)", name: map["name"]?.string ?? dir.lastPathComponent,
+                                       modelURL: AppSchemeHandler.url("\(prefix)/\(name)/character.json"), map: map, sprite: true))
             }
         }
         return result

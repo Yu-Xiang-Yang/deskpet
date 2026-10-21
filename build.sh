@@ -95,6 +95,8 @@ codesign --force --sign - "$SAVER" >/dev/null 2>&1 || true
 cp -R Resources/web "$APP/Contents/Resources/web"
 mkdir -p "$APP/Contents/Resources/models"
 find Resources/models -mindepth 1 -maxdepth 1 -type d -exec cp -R {} "$APP/Contents/Resources/models/" \;
+# Sprite characters (pictures per expression, see Resources/characters/*/character.json).
+cp -R Resources/characters "$APP/Contents/Resources/characters"
 [ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp -R "$SAVER" "$APP/Contents/Resources/DeskPet.saver"
 

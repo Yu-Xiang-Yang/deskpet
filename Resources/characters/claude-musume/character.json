@@ -1,0 +1,28 @@
+{
+  "name": "Claude 娘",
+  "kind": "sprite",
+  "look": "Q 版半身的小姑娘：橘色长卷发，头戴橘色花饰与黑色蝴蝶结（缀金色流苏），白色荷叶边上衣，怀里抱着一本棕色封皮的书",
+  "credit": "Claude 娘立绘来自 Ancean/claude-musume（MIT 许可，github.com/Ancean/claude-musume），粉丝自制、非官方，与 Anthropic 无关；Claude 是 Anthropic 的商标。",
+  "headFraction": 0.55,
+  "height": 0.92,
+  "states": {
+    "idle": ["idle"],
+    "blink": ["blink"],
+    "happy": ["happy", "happy-smile", "happy-wink", "happy-wink-book"],
+    "smile": ["happy-smile"],
+    "wave": ["wave"],
+    "cheer": ["cheer"],
+    "pout": ["pout"],
+    "think": ["working-chin", "working", "working-notes"],
+    "surprised": ["drag"],
+    "sleep": ["sleep"],
+    "shy": ["happy-wink-book"],
+    "sad": ["worried", "worried-awkward"]
+  },
+  "weights": { "happy-smile": 3, "worried-awkward": 3, "working-chin": 3 },
+  "motions": {
+    "idle": "idle", "happy": "happy", "wave": "wave", "nod": "smile", "shake": "pout", "think": "think",
+    "surprised": "surprised", "sleepy": "sleep", "shy": "shy", "eat": "cheer", "sad": "sad"
+  },
+  "blink": { "from": ["idle", "happy-smile", "worried-awkward"], "ms": 140, "every": [2.5, 6] }
+}

@@ -27,11 +27,18 @@
   let sleeping = false;
   let talking = false;
   let researchOn = false;
-  // Research-mode figure: a still picture shown instead of the Live2D character (see figureFrame).
-  let figureURL = null;
+  // Pictures instead of a Live2D model (see figureFrame): a sprite character (one picture per expression) as the
+  // everyday character, and the research-mode figure (a single picture) while research mode is on.
+  let researchURL = null;
+  let sprite = null;       // { base, states, weights, motions, blink, head }
+  let spritePick = "idle"; // the picture for the current motion
+  let blinkUntil = 0, nextBlink = 0, nextRepick = 0;
   let figureOn = false;
+  let figureSrc = "";
+  let figureHead = 0.24;   // the top part of the picture that counts as the head
   let figureMotion = { name: "idle", t0: 0 };
-  let figureAlpha = null;  // { w, h, data } of the picture, for hit testing
+  let figureAlpha = null;  // { w, h, data } of the shown picture, for hit testing
+  const alphaCache = new Map();
   let lean = 0, leanTarget = 0;
 
   // ---------------------------------------------------------------- motions
@@ -41,6 +48,7 @@
     clearTimeout(motionTimer);
     current = motion;
     figureMotion = { name: motion, t0: performance.now() };
+    if (sprite) pickSprite(motion);
     playLive2D(motion);
     const ms = MOTION_MS[motion];
     if (ms) motionTimer = setTimeout(() => play(sleeping ? "sleepy" : "idle"), ms);
@@ -347,7 +355,7 @@
         const ax = Math.floor((x - r.left) / r.width * figureAlpha.w), ay = Math.floor((y - r.top) / r.height * figureAlpha.h);
         if (ax < 0 || ay < 0 || ax >= figureAlpha.w || ay >= figureAlpha.h || figureAlpha.data[(ay * figureAlpha.w + ax) * 4 + 3] < 24) return null;
       }
-      return y < r.top + r.height * 0.24 ? "head" : "body";
+      return y < r.top + r.height * figureHead ? "head" : "body";
     }
     if (el === canvas && l2d) {
       const [lx, ly] = canvasPoint(x, y);
@@ -596,37 +604,102 @@
     return [(x - r.left) / k, (y - r.top) / k];
   }
 
-  // ---------------------------------------------------------------- research-mode figure
-  // A single picture cannot move its parts, so the whole figure breathes (a slight stretch about the feet),
-  // sways, leans towards the pointer, and acts out the motions with hops, tilts and shakes.
+  // ---------------------------------------------------------------- pictures: sprite character and research figure
+  // A picture cannot move its parts, so the whole figure breathes (a slight stretch about the feet), sways, leans
+  // towards the pointer and acts out the motions with hops, tilts and shakes; a sprite character also changes
+  // its picture with the motion and blinks.
 
-  function updateFigure() {
-    const on = researchOn && !!figureURL && figure.complete && figure.naturalWidth > 0;
-    if (on === figureOn) return;
-    figureOn = on;
-    root.classList.toggle("figure-on", on);
-    lastMask = "";
-    lastFeet = null;
+  /** Loads a picture and keeps a small copy of its alpha channel for hit testing. */
+  function loadPicture(src) {
+    return new Promise((resolve) => {
+      if (alphaCache.has(src)) { resolve(true); return; }
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(img.naturalWidth / 4));
+        c.height = Math.max(1, Math.round(img.naturalHeight / 4));
+        const ctx = c.getContext("2d", { willReadFrequently: true });
+        let alpha = null;
+        try { ctx.drawImage(img, 0, 0, c.width, c.height); alpha = { w: c.width, h: c.height, data: ctx.getImageData(0, 0, c.width, c.height).data }; } catch (_) {}
+        alphaCache.set(src, alpha);
+        resolve(true);
+      };
+      img.onerror = () => { log("picture failed to load:", src); resolve(false); };
+      img.src = src;
+    });
   }
 
   function setResearchFigure(url) {
-    figureURL = url || null;
-    figureAlpha = null;
-    if (!figureURL) { updateFigure(); return; }
-    figure.onload = () => {
-      const c = document.createElement("canvas");
-      c.width = Math.max(1, Math.round(figure.naturalWidth / 4));
-      c.height = Math.max(1, Math.round(figure.naturalHeight / 4));
-      const ctx = c.getContext("2d", { willReadFrequently: true });
-      try { ctx.drawImage(figure, 0, 0, c.width, c.height); figureAlpha = { w: c.width, h: c.height, data: ctx.getImageData(0, 0, c.width, c.height).data }; } catch (_) {}
-      updateFigure();
-    };
-    figure.onerror = () => { log("figure failed to load:", figureURL); figureURL = null; updateFigure(); };
-    figure.src = figureURL;
+    researchURL = null;
+    if (url) loadPicture(url).then((ok) => { if (ok) researchURL = url; });
+  }
+
+  async function initSprite(cfg) {
+    const map = cfg.map || await fetch(cfg.sprite).then((r) => r.json());
+    const base = new URL(".", new URL(cfg.sprite, location.href)).href;
+    sprite = { base, states: map.states || {}, weights: map.weights || {}, motions: map.motions || {},
+               blink: map.blink || null, head: map.headFraction || 0.5, height: map.height || 1 };
+    const names = new Set(Object.values(sprite.states).flat());
+    const results = await Promise.all([...names].map((n) => loadPicture(base + n + ".png")));
+    if (!results.some(Boolean)) throw new Error("no pictures");
+    mode = "sprite";
+    pickSprite("idle");
+  }
+
+  /** The picture for a motion: one of its state's pictures, chosen by weight. */
+  function pickSprite(motion) {
+    const state = sprite.motions[motion] || motion;
+    const list = sprite.states[state] || sprite.states.idle || ["idle"];
+    const weight = (n) => (sprite.weights[n] == null ? 1 : sprite.weights[n]);
+    let r = Math.random() * list.reduce((a, n) => a + weight(n), 0);
+    spritePick = list.find((n) => (r -= weight(n)) < 0) || list[0];
+    nextRepick = performance.now() + (20 + Math.random() * 10) * 1000;
+    blinkUntil = 0;
+  }
+
+  /** Which picture to show now: the research figure in research mode, otherwise the sprite character. */
+  function currentPicture(now) {
+    if (researchOn && researchURL) return [researchURL, 0.24, 1];
+    if (!sprite) return null;
+    const b = sprite.blink;
+    if (b && !sleeping && (b.from || []).includes(spritePick)) {
+      if (!nextBlink) nextBlink = now + 2000;
+      if (now >= nextBlink && now > blinkUntil) {
+        blinkUntil = now + (b.ms || 140);
+        const [lo, hi] = b.every || [2.5, 6];
+        nextBlink = now + (lo + Math.random() * (hi - lo)) * 1000 * (Math.random() < 0.15 ? 0.15 : 1);  // now and then twice
+      }
+    }
+    // A long-lasting expression with several pictures changes picture now and then.
+    if (now > nextRepick && (current === "idle" || current === "think" || current === "sleepy")) pickSprite(current);
+    const name = now < blinkUntil && sprite.states.blink ? sprite.states.blink[0] : spritePick;
+    return [sprite.base + name + ".png", sprite.head, sprite.height];
+  }
+
+  function showPicture(now) {
+    const pic = currentPicture(now);
+    const on = !!pic;
+    if (on !== figureOn) {
+      figureOn = on;
+      root.classList.toggle("figure-on", on);
+      lastMask = "";
+      lastFeet = null;
+    }
+    if (pic && pic[0] !== figureSrc) {
+      figureSrc = pic[0];
+      figure.src = figureSrc;
+      figureAlpha = alphaCache.get(figureSrc) || null;
+    }
+    if (pic) {
+      figureHead = pic[1];
+      const h = Math.round(pic[2] * 100) + "%";
+      if (figure.style.height !== h) figure.style.height = h;
+    }
   }
 
   function figureFrame(now) {
     requestAnimationFrame(figureFrame);
+    showPicture(now);
     if (!figureOn) return;
     const t = now / 1000, e = (now - figureMotion.t0) / 1000;
     const TAU = 2 * Math.PI;
@@ -666,8 +739,11 @@
       if (cfg.layout) window.pet.setLayout(cfg.layout[0], cfg.layout[1]);
       window.pet.setBubblesBelow(!!cfg.below);
       if (cfg.researchFigure) setResearchFigure(cfg.researchFigure);
-      let problem = cfg.model ? null : (cfg.missing || "没有找到 Live2D 模型。");
-      if (cfg.model) {
+      let problem = cfg.model || cfg.sprite ? null : (cfg.missing || "没有找到 Live2D 模型。");
+      if (cfg.sprite) {
+        try { await initSprite(cfg); }
+        catch (e) { problem = "形象加载失败：" + (e && e.message); log(problem); }
+      } else if (cfg.model) {
         try { await initLive2D(cfg); }
         catch (e) { problem = "Live2D 模型加载失败：" + (e && e.message); log(problem); }
       }
@@ -683,7 +759,6 @@
     setResearch(on) {
       researchOn = !!on;
       root.classList.toggle("research", researchOn);
-      updateFigure();
       if (!researchOn) bubbles.querySelectorAll(".bubble.answer").forEach((b) => dismiss(b, true));
     },
     setResearchFigure,

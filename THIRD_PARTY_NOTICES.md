@@ -24,6 +24,10 @@ DeskPet 源代码以 MIT 许可证发布。下列组件与数据来源由各自�
 | `meow1`–`meow4` | [BigSoundBank #0098 “Small mewing of a cat”](https://bigsoundbank.com/small-mewing-of-a-cat-s0098.html) | Joseph Sardin |
 | `mew1`–`mew3`、`trill1`、`trill2`、`purr` | [OpenGameArt “cat purr meow”](https://opengameart.org/content/cat-purr-meow)（`cat_mewfood`、`cat_softmew`、`cat_mewpurr`、`cat_mewpurr2`、`cat_purrsleepy_loop`） | Kerzoven |
 
+## 随项目分发的角色立绘
+
+`Resources/characters/claude-musume/` 中的 Claude 娘立绘取自 [Ancean/claude-musume](https://github.com/Ancean/claude-musume) 的 `buddy-art/`，原项目以 MIT 许可发布（许可全文见该目录下的 `LICENSE`，Copyright (c) 2026 Ancean）。本项目将其缩放至 512 像素并改用英文文件名，未作其它修改。原项目声明为粉丝自制、非官方作品，与 Anthropic 无关，Claude 为 Anthropic 的商标。
+
 ## 科研模式形象（不纳入版本库）
 
 科研模式的鲸鱼娘形象为单张立绘，存放于 `~/Library/Application Support/DeskPet/characters/whale-girl/`，不随源代码或构建产物分发。

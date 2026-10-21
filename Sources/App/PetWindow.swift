@@ -340,7 +340,10 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
         var config: [String: JSON] = ["scale": .number(Double(scale)), "below": .bool(flipped),
                                       "layout": [.number(Double(bubbles.width)), .number(Double(bubbles.height))],
                                       "strings": ["more": .string(tr("点击查看完整内容 · 可滚动", "Click for the full answer · scrollable"))]]
-        if !PetModel.cubismCoreInstalled {
+        if let model, model.sprite {
+            config["sprite"] = .string(model.modelURL.absoluteString)
+            if let map = model.map { config["map"] = map }
+        } else if !PetModel.cubismCoreInstalled {
             config["missing"] = .string(tr("没有找到 Live2D Cubism Core（live2dcubismcore.min.js）。", "Live2D Cubism Core (live2dcubismcore.min.js) is missing."))
         } else if let model {
             config["model"] = .string(model.modelURL.absoluteString)
