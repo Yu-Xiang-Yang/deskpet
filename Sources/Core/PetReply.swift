@@ -12,6 +12,39 @@ struct RemindRequest: Codable, Equatable {
     var text: String
 }
 
+/// A calendar event the model asks to add (after the owner confirms it). Times are local, "yyyy-MM-dd HH:mm"
+/// (all-day events: "yyyy-MM-dd").
+struct EventRequest: Codable, Equatable {
+    var title: String
+    var start: String
+    var end: String?
+    var location: String?
+    var allDay: Bool = false
+
+    /// Start and end as dates: a missing or earlier end lasts one hour (all-day: the whole start day); nil when
+    /// the start cannot be read.
+    func interval(calendar: Calendar = .current) -> (start: Date, end: Date)? {
+        func parse(_ text: String, _ format: String) -> Date? {
+            let f = DateFormatter()
+            f.calendar = calendar
+            f.timeZone = calendar.timeZone
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.dateFormat = format
+            return f.date(from: text.trimmingCharacters(in: .whitespaces))
+        }
+        if allDay {
+            guard let day = parse(String(start.prefix(10)), "yyyy-MM-dd") else { return nil }
+            let first = calendar.startOfDay(for: day)
+            let last = end.flatMap { parse(String($0.prefix(10)), "yyyy-MM-dd") }.map { calendar.startOfDay(for: $0) } ?? first
+            guard let after = calendar.date(byAdding: .day, value: 1, to: max(first, last)) else { return nil }
+            return (first, after)
+        }
+        guard let from = parse(start, "yyyy-MM-dd HH:mm") else { return nil }
+        let to = end.flatMap { parse($0, "yyyy-MM-dd HH:mm") }.flatMap { $0 > from ? $0 : nil } ?? from.addingTimeInterval(3600)
+        return (from, to)
+    }
+}
+
 /// The structured reply of the pet persona.
 struct PetReply: Codable, Equatable {
     var reply: String
@@ -23,6 +56,10 @@ struct PetReply: Codable, Equatable {
     var remember: String?
     /// A keyword: memories containing it are to be forgotten, or nil.
     var forget: String?
+    /// An application to open, by name (e.g. "微信", "Safari"), or nil.
+    var openApp: String? = nil
+    /// A calendar event to add (after the owner confirms), or nil.
+    var addEvent: EventRequest? = nil
 
     /// JSON Schema for structured outputs. Every object sets `additionalProperties: false`,
     /// and numerical constraints are omitted because structured outputs do not support them.
@@ -30,7 +67,7 @@ struct PetReply: Codable, Equatable {
         [
             "type": "object",
             "additionalProperties": false,
-            "required": ["reply", "motion", "remind", "weather_city", "remember", "forget"],
+            "required": ["reply", "motion", "remind", "weather_city", "remember", "forget", "open_app", "add_event"],
             "properties": [
                 "reply": ["type": "string", "description": "What the pet says, at most about 60 characters."],
                 "motion": ["type": "string", "enum": .array(PetMotion.allCases.map { .string($0.rawValue) })],
@@ -60,6 +97,27 @@ struct PetReply: Codable, Equatable {
                     "anyOf": [["type": "null"], ["type": "string"]],
                     "description": "Keyword of memories the owner asked to forget; null otherwise.",
                 ],
+                "open_app": [
+                    "anyOf": [["type": "null"], ["type": "string"]],
+                    "description": "Name of an application the owner asked to open; null otherwise.",
+                ],
+                "add_event": [
+                    "anyOf": [
+                        ["type": "null"],
+                        [
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["title", "start", "end", "location", "all_day"],
+                            "properties": [
+                                "title": ["type": "string"],
+                                "start": ["type": "string", "description": "Local time, yyyy-MM-dd HH:mm (all-day: yyyy-MM-dd)."],
+                                "end": ["anyOf": [["type": "null"], ["type": "string"]]],
+                                "location": ["anyOf": [["type": "null"], ["type": "string"]]],
+                                "all_day": ["type": "boolean"],
+                            ],
+                        ],
+                    ],
+                ],
             ],
         ]
     }
@@ -79,8 +137,17 @@ struct PetReply: Codable, Equatable {
                 let value = json[key]?.string?.trimmingCharacters(in: .whitespacesAndNewlines)
                 return value?.isEmpty == false ? value : nil
             }
+            var event: EventRequest?
+            if let e = json["add_event"], let title = e["title"]?.string, let start = e["start"]?.string, !start.isEmpty {
+                func field(_ key: String) -> String? {
+                    let v = e[key]?.string?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return v?.isEmpty == false ? v : nil
+                }
+                event = EventRequest(title: title, start: start, end: field("end"), location: field("location"),
+                                     allDay: e["all_day"]?.bool ?? false)
+            }
             return PetReply(reply: reply, motion: motion, remind: remind, weatherCity: text("weather_city"),
-                            remember: text("remember"), forget: text("forget"))
+                            remember: text("remember"), forget: text("forget"), openApp: text("open_app"), addEvent: event)
         }
         return PetReply(reply: text.isEmpty ? "……" : text, motion: .idle, remind: nil)
     }

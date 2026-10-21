@@ -18,6 +18,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private lazy var research = ResearchWindowController(engine: engine)
     private let settingsWindow = SettingsWindowController()
     private let chatPanel = ChatInputPanel()
+    private let approval = ApprovalPanel()
     private var statusItem: NSStatusItem?
 
     /// In research mode the chat box asks the research assistant; answers appear as the pet's bubbles.
@@ -55,6 +56,10 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         brain.onRemind = { [weak self] r in
             self?.reminders.add(minutes: r.minutes, text: r.text)
         }
+        brain.onOpenApp = { [weak self] name in
+            AppLauncher.open(name) { self?.pet.say($0, kind: "memory") }
+        }
+        brain.onAddEvent = { [weak self] request in self?.confirmEvent(request) }
         brain.start()
         reminders.start()
         weather.start()
@@ -216,6 +221,23 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }
         returnWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + (unlocked ? 0.05 : 1.0), execute: work)
+    }
+
+    /// A calendar event from the chat is written only after the owner allows it on the card below the pet.
+    private func confirmEvent(_ request: EventRequest) {
+        guard let text = CalendarWatcher.describe(request) else {
+            pet.say(tr("没看懂日程的时间，换个说法试试？", "I couldn't read the event's time. Could you rephrase it?"), kind: "error")
+            return
+        }
+        let ask = { [weak self] in
+            guard let self else { return }
+            self.approval.ask(text, below: self.pet.panel) { yes in
+                self.pet.say(yes ? self.calendar.add(request) : tr("好的，不加了。", "OK, not added."), kind: "memory")
+            }
+        }
+        if CalendarWatcher.authorized { ask() } else { calendar.requestAccess { granted in
+            if granted { ask() } else { self.pet.say(CalendarWatcher.statusText, kind: "error") }
+        } }
     }
 
     /// The login intro on every screen; afterwards the pet waves, meows and says hello.

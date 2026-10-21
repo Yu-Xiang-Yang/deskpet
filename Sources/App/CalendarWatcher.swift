@@ -23,10 +23,10 @@ final class CalendarWatcher {
             .flatMap { try? JSONDecoder().decode(CalendarAlertState.self, from: $0) } ?? CalendarAlertState()
     }
 
-    static var authorized: Bool { EKEventStore.authorizationStatus(for: .event) == .fullAccess }
+    nonisolated static var authorized: Bool { EKEventStore.authorizationStatus(for: .event) == .fullAccess }
 
     /// The permission state in words, for the settings.
-    static var statusText: String {
+    nonisolated static var statusText: String {
         switch EKEventStore.authorizationStatus(for: .event) {
         case .fullAccess: return tr("已获得日历读取权限。", "Calendar access granted.")
         case .notDetermined: return tr("打开后系统会询问是否允许读取日历。", "macOS will ask for calendar access when this is turned on.")
@@ -100,6 +100,45 @@ final class CalendarWatcher {
         for alert in alerts {
             let (text, motion) = CalendarAlerts.message(alert)
             announce(text, motion)
+        }
+    }
+
+    /// The confirmation text for an event request, or nil when its time cannot be read.
+    static func describe(_ request: EventRequest) -> String? {
+        guard let (start, end) = request.interval() else { return nil }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: tr("zh_CN", "en_US"))
+        f.setLocalizedDateFormatFromTemplate(request.allDay ? "MMMdEEE" : "MMMdEEEHHmm")
+        var when = f.string(from: start)
+        if !request.allDay {
+            let t = DateFormatter()
+            t.dateFormat = "HH:mm"
+            when += "–" + t.string(from: end)
+        }
+        let place = request.location.map { tr("，地点：\($0)", ", at \($0)") } ?? ""
+        return tr("添加到日历：\(when)「\(request.title)」\(place)", "Add to Calendar: \(when) “\(request.title)”\(place)")
+    }
+
+    /// Adds the event to the default calendar for new events (the owner has confirmed it).
+    func add(_ request: EventRequest) -> String {
+        guard Self.authorized else { return Self.statusText }
+        guard let (start, end) = request.interval() else { return tr("没看懂日程的时间。", "I couldn't read the event's time.") }
+        guard let target = store.defaultCalendarForNewEvents else {
+            return tr("没有可写入的日历，请在“日历”App 中设置默认日历。", "No calendar to write to; set a default calendar in the Calendar app.")
+        }
+        let event = EKEvent(eventStore: store)
+        event.title = request.title
+        event.startDate = start
+        event.endDate = end
+        event.isAllDay = request.allDay
+        event.location = request.location
+        event.calendar = target
+        do {
+            try store.save(event, span: .thisEvent)
+            loadedAt = .distantPast
+            return tr("已添加到“\(target.title)”日历：\(request.title)", "Added to “\(target.title)”: \(request.title)")
+        } catch {
+            return tr("添加失败：\(error.localizedDescription)", "Couldn't add it: \(error.localizedDescription)")
         }
     }
 

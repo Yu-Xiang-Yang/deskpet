@@ -9,6 +9,8 @@ final class PetBrain {
     private unowned let pet: PetWindowController
     /// Called when the model asks for a reminder.
     var onRemind: ((RemindRequest) -> Void)?
+    var onOpenApp: ((String) -> Void)?
+    var onAddEvent: ((EventRequest) -> Void)?
 
     private var busy = false
     private var chatterTimer: Timer?
@@ -70,7 +72,9 @@ final class PetBrain {
             "- 桌面行为：随音乐摇摆\(on(settings.danceToMusic))；自己走动（\(settings.wander.title)）；攀爬窗口；淘气行为\(on(settings.mischief))（装睡、从屏幕边缘探头、偷偷靠近鼠标）。",
             "- 开机动画\(on(settings.bootIntro))：开机或解锁后播放金色进度条与白金页；屏幕保护程序可在“设置 → 通用”中安装。",
         ]
-        lines.append("- 你做不到的事：操作主人电脑上的其它 App、收发邮件、修改日历、联网下单；不要承诺这些。设置项都在右键菜单“设置…”中。")
+        lines.append("- 打开应用：主人说“打开微信”时经 open_app 打开该应用（只能打开，不能在应用里操作）。")
+        lines.append("- 添加日程：经 add_event 添加到系统日历；会先弹出确认卡片，主人点“允许”后才写入\(CalendarWatcher.authorized ? "" : "（需先在“设置 → 提醒 → 日历”中开启并授权）")。")
+        lines.append("- 你做不到的事：在其它 App 里点按或输入、读写文件、执行命令、收发邮件、修改或删除已有日程、联网下单；不要承诺这些。设置项都在右键菜单“设置…”中。")
         return "\n\n## 你的能力（被问到能做什么时据此回答，指出入口；不要编造未列出的功能）\n" + lines.joined(separator: "\n")
     }
 
@@ -88,7 +92,7 @@ final class PetBrain {
 
         ## 回复格式
         始终只输出一个 JSON 对象，不输出任何其它文字：
-        {"reply": "你说的话", "motion": "动作", "remind": null, "weather_city": null, "remember": null, "forget": null}
+        {"reply": "你说的话", "motion": "动作", "remind": null, "weather_city": null, "remember": null, "forget": null, "open_app": null, "add_event": null}
         - reply：口语化、简短（一般不超过 60 个字），可以使用颜文字；使用与用户相同的语言。
         - motion：从 idle, happy, wave, nod, shake, think, surprised, sleepy, shy, eat, sad 中选择最贴合语气的一个。
         - remind：当用户请求在一段时间后提醒某件事时，填写 {"minutes": 距现在的分钟数, "text": "提醒内容"}；否则为 null。
@@ -108,6 +112,10 @@ final class PetBrain {
         s += """
 
         - forget：主人要求忘掉某件事时，填写能匹配相关记忆的关键词；否则为 null。
+        - open_app：主人要你打开某个应用时，填写应用名（如“微信”“Safari”）；否则为 null。
+        - add_event：主人要你添加日程时，填写 {"title": "标题", "start": "yyyy-MM-dd HH:mm", "end": 同格式或 null, \
+        "location": 地点或 null, "all_day": 是否全天}（全天日程的 start 写 yyyy-MM-dd）；按上下文中的当前时间换算“明天下午三点”等说法，\
+        缺结束时间时 end 为 null（默认一小时）。系统会先请主人确认再写入，reply 写一句“确认一下就帮你加上”之类的话。其它情况为 null。
         用户消息开头方括号中的内容是系统提供的上下文（当前时间、主人所在地天气、主人的日程等），不是用户本人说的话。
         回答时自然地参考记忆库，但不要每次都复述记忆。需要长篇解答的学术问题，请简要回答并建议用户在右键菜单中打开“科研模式”。
         """
@@ -225,6 +233,8 @@ final class PetBrain {
         pet.say(reply.reply)
         pet.meow(MeowKind(reply.motion), chance: 0.3)
         if let remind = reply.remind { onRemind?(remind) }
+        if let app = reply.openApp { onOpenApp?(app) }
+        if let event = reply.addEvent { onAddEvent?(event) }
         if let keyword = reply.forget {
             let n = MemoryStore.shared.forget(keyword)
             if n > 0 { pet.say(tr("🗑 已忘掉 \(n) 条关于“\(keyword)”的记忆", "🗑 Forgot \(n) memories about “\(keyword)”"), kind: "memory") }

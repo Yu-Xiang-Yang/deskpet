@@ -264,6 +264,23 @@ do {
     check(n.weatherCity == nil, "PetReply null weather_city")
     let schemaFields = PetReply.schema["required"]?.array?.compactMap(\.string) ?? []
     check(schemaFields.contains("weather_city"), "Schema requires weather_city")
+    check(schemaFields.contains("open_app") && schemaFields.contains("add_event"), "Schema requires open_app and add_event")
+    let app = PetReply.parse(#"{"reply":"好","motion":"nod","open_app":" 微信 ","add_event":null}"#)
+    check(app.openApp == "微信" && app.addEvent == nil, "PetReply open_app")
+    let ev = PetReply.parse(#"{"reply":"确认一下","motion":"nod","open_app":null,"add_event":{"title":"组会","start":"2026-10-22 15:00","end":null,"location":" ","all_day":false}}"#)
+    check(ev.addEvent == EventRequest(title: "组会", start: "2026-10-22 15:00", end: nil, location: nil, allDay: false), "PetReply add_event")
+    var shanghai = Calendar(identifier: .gregorian)
+    shanghai.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+    if let (s, e) = ev.addEvent?.interval(calendar: shanghai) {
+        check(e.timeIntervalSince(s) == 3600 && shanghai.component(.hour, from: s) == 15, "Event: one hour by default")
+    } else { check(false, "Event interval") }
+    let allDay = EventRequest(title: "休假", start: "2026-10-22", end: "2026-10-23", location: nil, allDay: true)
+    if let (s, e) = allDay.interval(calendar: shanghai) {
+        check(e.timeIntervalSince(s) == 2 * 86400, "All-day event over two days")
+    } else { check(false, "All-day interval") }
+    check(EventRequest(title: "x", start: "明天下午", end: nil, location: nil).interval() == nil, "Unreadable start refused")
+    let back = EventRequest(title: "x", start: "2026-10-22 15:00", end: "2026-10-22 14:00", location: nil)
+    check(back.interval(calendar: shanghai).map { $0.end.timeIntervalSince($0.start) } == 3600, "End before start: one hour")
     check(!Weather.describe(0).isEmpty && Weather.describe(63) != Weather.describe(-1), "WMO weather codes")
 }
 
