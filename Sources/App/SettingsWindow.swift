@@ -153,6 +153,12 @@ struct SettingsView: View {
                     ForEach(PetLayer.allCases) { Text($0.title).tag($0) }
                 }
             }
+            Section(tr("Claude Code（开发任务）", "Claude Code (development work)")) {
+                TextField(tr("默认项目目录", "Default project folder"), text: $settings.claudeProjectDir)
+                Text(tr("说“让 Claude 来做……”或交代开发类任务时，桌宠在“终端”里打开 Claude Code 会话（使用你本机登录的 Claude 账号，与上面聊天所用的模型无关），任务作为第一句话发出；没说项目时在这个目录里工作。",
+                        "When you ask for Claude or give development work, the pet opens a Claude Code session in Terminal (with the Claude account signed in on this Mac, independent of the chat model) and sends the task as its first message; without a named project it works in this folder."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section(tr("系统", "System")) {
                 Picker(tr("语言", "Language"), selection: $language) {
                     ForEach(LanguagePreference.allCases) { Text($0.title).tag($0) }
@@ -351,12 +357,6 @@ struct SettingsView: View {
                             "Research mode searches arXiv and Semantic Scholar via function calling; the model must support tools."))
                         .font(.caption).foregroundStyle(.secondary)
                 }
-            }
-            Section("Claude Code") {
-                TextField(tr("默认项目目录", "Default project folder"), text: $settings.claudeProjectDir)
-                Text(tr("说“让 Claude 来做……”或交代开发类任务时，桌宠在“终端”里打开 Claude Code 会话（使用你本机登录的 Claude 账号），任务作为第一句话发出；没说项目时在这个目录里工作。",
-                        "When you ask for Claude or give development work, the pet opens a Claude Code session in Terminal (with the Claude account signed in on this Mac) and sends the task as its first message; without a named project it works in this folder."))
-                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 HStack {
