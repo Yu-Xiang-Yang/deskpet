@@ -33,6 +33,9 @@ const INFO = {
 const ZH = INFO.lang.startsWith('zh');
 let STYLE = (Q.get('style') || 'c').toLowerCase();
 let LOCK = Q.has('lock');
+// variant=lock: the still picture behind the lock screen (macOS draws its own clock, user picture and password
+// field on top), without the clock, timers and task log that would go stale.
+const STILL = Q.get('variant') === 'lock';
 const TASKS = (() => { try { return JSON.parse(Q.get('log') || '[]'); } catch (_) { return []; } })();
 
 const MONO = 'ui-monospace, "SF Mono", Menlo, monospace';
@@ -164,18 +167,21 @@ function frame(now) {
   const d = new Date();
 
   // Date and clock, where the lock screen shows them.
+  if (!STILL) {
   x.fillStyle = 'rgba(240,226,196,.75)'; x.font = `500 17px ${SANS}`; x.textAlign = 'center';
   x.fillText(ZH ? `${d.getMonth() + 1}月${d.getDate()}日 ${WEEK_ZH[d.getDay()]}` : d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }), CX, Z.date);
   x.fillStyle = 'rgba(248,236,210,.94)'; x.font = `200 104px ${SANS}`;
   x.fillText(`${d.getHours()}:${p2(d.getMinutes())}`, CX, Z.clock);
+  }
 
   // Core.
   x.save(); x.translate(ox, oy);
   if (STYLE === 'b') coreSphere(t, Z.core); else if (STYLE === 'c') coreNeural(t, Z.core); else coreHalo(t, Z.core);
   x.font = `30px ${SERIF}`; x.fillStyle = gold(.92);
-  spaced(`${INFO.aiLatin}  ·  STANDBY`, CX, Z.title, 12);
+  spaced(`${INFO.aiLatin}  ·  ${STILL ? 'SECURED' : 'STANDBY'}`, CX, Z.title, 12);
   x.font = `300 13px ${CJK}`; x.fillStyle = gold(.55);
-  spaced(ZH ? `${INFO.ai}待命中 · 主控 AI 低功耗运行` : `${INFO.ai} on standby · core AI in low-power mode`, CX, Z.sub, 3);
+  spaced(STILL ? (ZH ? `${INFO.ai}守护中 · 等待身份验证` : `${INFO.ai} on guard · awaiting authentication`)
+               : (ZH ? `${INFO.ai}待命中 · 主控 AI 低功耗运行` : `${INFO.ai} on standby · core AI in low-power mode`), CX, Z.sub, 3);
   x.restore();
 
   // The dock: a ring where macOS puts the user picture, and a slot for the password field.
@@ -189,8 +195,10 @@ function frame(now) {
       x.strokeStyle = gold(.7); x.lineWidth = 1.4;
       x.beginPath(); x.arc(CX, Z.avatar, ar + 14, a, a + .35); x.stroke();
     }
-    x.font = `11px ${MONO}`; x.fillStyle = gold(.6);
-    spaced(ZH ? `等待操作员 · ${INFO.name}` : `AWAITING OPERATOR · ${INFO.name.toUpperCase()}`, CX, Z.name + 2, 3);
+    if (!STILL) {  // under the lock screen, macOS writes the user's name here
+      x.font = `11px ${MONO}`; x.fillStyle = gold(.6);
+      spaced(ZH ? `等待操作员 · ${INFO.name}` : `AWAITING OPERATOR · ${INFO.name.toUpperCase()}`, CX, Z.name + 2, 3);
+    }
   }
   // Hairlines on either side of the password field (kept in both states, the field sits between them).
   const fw = 120, gap = 26;
@@ -208,15 +216,18 @@ function frame(now) {
   const blink = Math.floor(t * 1.2) % 2 === 0;
   x.fillStyle = blink ? 'rgba(255,214,120,.95)' : 'rgba(255,214,120,.25)';
   x.beginPath(); x.arc(68, 80, 3, 0, 7); x.fill();
-  x.fillStyle = gold(.6); x.fillText(ZH ? '状态 · 待命' : 'STATUS · STANDBY', 78, 84);
+  x.fillStyle = gold(.6); x.fillText(STILL ? (ZH ? '状态 · 已锁定' : 'STATUS · LOCKED') : (ZH ? '状态 · 待命' : 'STATUS · STANDBY'), 78, 84);
+  if (!STILL) {
   const away = Math.floor(t), hh = Math.floor(away / 3600), mm = Math.floor(away / 60) % 60, ss = away % 60;
   x.textAlign = 'right'; x.fillStyle = gold(.75);
   x.fillText(ZH ? '离开时长' : 'AWAY', VW - 64, 64);
   x.font = `200 22px ${SANS}`; x.fillStyle = 'rgba(240,226,196,.85)';
   x.fillText(`${p2(hh)}:${p2(mm)}:${p2(ss)}`, VW - 64, 90);
+  }
 
   // Lower left: the task log.
   const baseY = VH - 70;
+  if (!STILL) {
   x.font = `11px ${MONO}`; x.textAlign = 'left'; x.fillStyle = gold(.85);
   x.fillText(ZH ? '任务日志' : 'TASK LOG', 64, baseY - 7 * 20 - 12);
   x.strokeStyle = gold(.3); x.beginPath(); x.moveTo(64, baseY - 7 * 20 - 4); x.lineTo(64 + 300, baseY - 7 * 20 - 4); x.stroke();
@@ -225,6 +236,7 @@ function frame(now) {
     x.fillStyle = gold(.45 * fade); x.fillText(e.at, 64, y);
     x.fillStyle = `rgba(240,226,196,${.85 * fade})`; x.font = `12px ${CJK}`; x.fillText(e.text, 140, y); x.font = `11px ${MONO}`;
   });
+  }
 
   // Lower right: the system.
   const rows = [
@@ -266,6 +278,14 @@ function mockLock() {
   x.font = `13px ${CJK}`; x.fillStyle = 'rgba(255,255,255,.55)'; x.fillText(ZH ? '输入密码' : 'Enter Password', CX, Z.field + 5);
   x.font = `11px ${CJK}`; x.fillStyle = 'rgba(255,255,255,.5)'; x.fillText(ZH ? '触控 ID 或输入密码' : 'Touch ID or Enter Password', CX, Z.field + 38);
 }
+
+// Renders one frame at w × h pixels (for the lock screen picture) and returns it as a PNG data URL.
+window.renderStill = (w, h, seconds = 20) => {
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  cv.width = w; cv.height = h; DPR = 1; S = h / VH; VW = w / S; CX = VW / 2;
+  frame(started + seconds * 1000);
+  return cv.toDataURL('image/png');
+};
 
 // About 30 frames per second is plenty for a screen saver.
 let last = 0;
