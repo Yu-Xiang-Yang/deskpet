@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>DeskPet Standby</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script>
+// DeskPet screen saver: the pet AI on standby. The layout follows the macOS lock screen, so that the change from
+// the screen saver to the password prompt is seamless: the clock sits where the lock screen shows its clock (top
+// centre), the core fills the empty middle, and a dock at the bottom centre waits for the user picture and the
+// password field. System details and the task log stay in the lower corners, clear of both.
+// URL parameters: ai, aiLatin, name, os, host, chip, cores, mem, displays, lang, style (a | b | c), log (JSON array
+// of strings from DeskPet), lock=1 (preview only: draws a mock lock screen on top).
+const Q = new URLSearchParams(location.search);
+const INFO = {
+  ai: Q.get('ai') || 'DeskPet',
+  aiLatin: Q.get('aiLatin') || 'DESKPET',
+  name: Q.get('name') || 'Friend',
+  os: Q.get('os') || 'macOS',
+  host: Q.get('host') || 'Mac',
+  chip: Q.get('chip') || 'Apple Silicon',
+  cores: Q.get('cores') || '',
+  mem: Q.get('mem') || '',
+  displays: Q.get('displays') || '1',
+  lang: Q.get('lang') || 'zh',
+};
+const ZH = INFO.lang.startsWith('zh');
+let STYLE = (Q.get('style') || 'a').toLowerCase();
+let LOCK = Q.has('lock');
+const TASKS = (() => { try { return JSON.parse(Q.get('log') || '[]'); } catch (_) { return []; } })();
+
+const MONO = 'ui-monospace, "SF Mono", Menlo, monospace';
+const SERIF = 'Didot, "Bodoni 72", "Times New Roman", serif';
+const SANS = '-apple-system, "SF Pro Display", "Helvetica Neue", "PingFang SC", sans-serif';
+const CJK = '"PingFang SC", "Hiragino Sans GB", sans-serif';
+const GOLD = '214,186,130';
+
+const cv = document.getElementById('cv'), x = cv.getContext('2d');
+// Virtual coordinates: 900 units high, the width follows the screen. Zones (fractions of the height) follow the
+// macOS 26 lock screen: date ≈ 0.07, clock ≈ 0.16, user picture ≈ 0.80, name ≈ 0.86, password field ≈ 0.90.
+let VW, VH = 900, CX, S, DPR;
+const Z = { date: 66, clock: 150, core: 420, title: 600, sub: 624, avatar: 718, name: 772, field: 808 };
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  DPR = Math.min(devicePixelRatio || 1, 2);
+  cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR);
+  S = h / VH; VW = w / S; CX = VW / 2;
+}
+addEventListener('resize', resize); resize();
+addEventListener('keydown', e => {  // preview helpers: 1/2/3 switch the core, L toggles the mock lock screen
+  if ('123'.includes(e.key)) STYLE = 'abc'['123'.indexOf(e.key)];
+  if (e.key.toLowerCase() === 'l') LOCK = !LOCK;
+});
+
+const cl = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const p2 = n => String(n).padStart(2, '0');
+function spaced(text, cx, y, gap, align = 'center') {
+  const ch = [...text], ws = ch.map(c => x.measureText(c).width), total = ws.reduce((a, b) => a + b, 0) + gap * (ch.length - 1);
+  let p = align === 'center' ? cx - total / 2 : align === 'right' ? cx - total : cx;
+  x.textAlign = 'left';
+  ch.forEach((c, i) => { x.fillText(c, p, y); p += ws[i] + gap; });
+}
+function gold(a) { return `rgba(${GOLD},${a})`; }
+
+/* ---------- cores ---------- */
+function coreHalo(t, cy) {
+  const b = .5 + .5 * Math.sin(t * 2 * Math.PI / 6);
+  const g = x.createRadialGradient(CX, cy, 0, CX, cy, 210);
+  g.addColorStop(0, `rgba(255,226,170,${.10 + .08 * b})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = g; x.fillRect(CX - 210, cy - 210, 420, 420);
+  x.lineWidth = 1;
+  x.strokeStyle = gold(.22); x.beginPath(); x.arc(CX, cy, 120, 0, 7); x.stroke();
+  x.strokeStyle = gold(.10); x.beginPath(); x.arc(CX, cy, 150, 0, 7); x.stroke();
+  for (let i = 0; i < 72; i++) {  // fine ticks on the outer ring, slowly turning
+    const a = i / 72 * Math.PI * 2 + t * .02, r1 = 150, r2 = i % 6 ? 154 : 160;
+    x.strokeStyle = gold(i % 6 ? .18 : .35);
+    x.beginPath(); x.moveTo(CX + Math.cos(a) * r1, cy + Math.sin(a) * r1); x.lineTo(CX + Math.cos(a) * r2, cy + Math.sin(a) * r2); x.stroke();
+  }
+  const a = t * .5;
+  x.strokeStyle = 'rgba(255,232,180,.95)'; x.lineWidth = 1.8;
+  x.beginPath(); x.arc(CX, cy, 120, a, a + 1.0); x.stroke();
+  x.strokeStyle = 'rgba(255,232,180,.35)'; x.lineWidth = 1;
+  x.beginPath(); x.arc(CX, cy, 150, -a * .6, -a * .6 + .5); x.stroke();
+  x.fillStyle = '#fff3d6'; x.beginPath(); x.arc(CX + Math.cos(a + 1) * 120, cy + Math.sin(a + 1) * 120, 3, 0, 7); x.fill();
+  // The heart: a small breathing light.
+  x.fillStyle = `rgba(255,240,205,${.55 + .4 * b})`; x.beginPath(); x.arc(CX, cy, 3.2 + 1.2 * b, 0, 7); x.fill();
+}
+
+const SPHERE = (() => { const n = 900, out = []; for (let i = 0; i < n; i++) { const y = 1 - 2 * (i + .5) / n, r = Math.sqrt(1 - y * y), th = i * 2.399963; out.push([Math.cos(th) * r, y, Math.sin(th) * r]); } return out; })();
+function coreSphere(t, cy) {
+  const R = 150, g = x.createRadialGradient(CX, cy, 0, CX, cy, 260);
+  g.addColorStop(0, 'rgba(120,170,255,.10)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = g; x.fillRect(CX - 260, cy - 260, 520, 520);
+  const ry = t * .18, rx = .35, cs = Math.cos(ry), sn = Math.sin(ry), c2 = Math.cos(rx), s2 = Math.sin(rx), pulse = 1 + .03 * Math.sin(t * 1.2);
+  SPHERE.forEach(([px, py, pz], i) => {
+    let X = px * cs + pz * sn, Zz = -px * sn + pz * cs, Y = py * c2 - Zz * s2; Zz = py * s2 + Zz * c2;
+    const k = R * pulse * (1 + .025 * Math.sin(t * 1.8 + i * .37)), d = (Zz + 1) / 2, sz = .8 + d * 1.6;
+    x.fillStyle = i % 29 === 0 ? `rgba(255,214,140,${.3 + .7 * d})` : `rgba(190,215,255,${.08 + .62 * d})`;
+    x.fillRect(CX + X * k, cy + Y * k, sz, sz);
+  });
+  const tilt = -.22, ex = R * 1.55, ey = R * .3;
+  x.strokeStyle = 'rgba(190,215,255,.16)'; x.lineWidth = .8;
+  x.beginPath(); x.ellipse(CX, cy, ex, ey, tilt, 0, 7); x.stroke();
+  const oa = t * .7, ox = Math.cos(oa) * ex, oy = Math.sin(oa) * ey;
+  x.fillStyle = 'rgba(255,224,160,.95)';
+  x.beginPath(); x.arc(CX + ox * Math.cos(tilt) - oy * Math.sin(tilt), cy + ox * Math.sin(tilt) + oy * Math.cos(tilt), 3, 0, 7); x.fill();
+}
+
+const NODES = Array.from({ length: 70 }, () => ({ a: Math.random() * 7, r: 60 + Math.random() * 230, s: (Math.random() - .5) * .05, ph: Math.random() * 7 }));
+function coreNeural(t, cy) {
+  const pts = NODES.map(n => {
+    const a = n.a + t * n.s, r = n.r + 10 * Math.sin(t * .4 + n.ph);
+    return { x: CX + Math.cos(a) * r * 1.35, y: cy + Math.sin(a) * r * .6 };  // flat enough to stay clear of the title
+  });
+  const core = { x: CX, y: cy }, all = pts.concat([core]);
+  x.lineWidth = .8;
+  for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+    const d = Math.hypot(all[i].x - all[j].x, all[i].y - all[j].y);
+    if (d < 110) { x.strokeStyle = gold(.20 * (1 - d / 110)); x.beginPath(); x.moveTo(all[i].x, all[i].y); x.lineTo(all[j].x, all[j].y); x.stroke(); }
+  }
+  pts.forEach(p => { x.fillStyle = gold(.75); x.beginPath(); x.arc(p.x, p.y, 1.6, 0, 7); x.fill(); });
+  const b = .5 + .5 * Math.sin(t * 1.1), g = x.createRadialGradient(CX, cy, 0, CX, cy, 70);
+  g.addColorStop(0, `rgba(255,230,180,${.5 + .35 * b})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = g; x.beginPath(); x.arc(CX, cy, 70, 0, 7); x.fill();
+  const w = (t * .35) % 1; x.strokeStyle = `rgba(255,230,180,${.45 * (1 - w)})`;
+  x.beginPath(); x.arc(CX, cy, 14 + w * 120, 0, 7); x.stroke();
+}
+
+/* ---------- task log ---------- */
+const DEFAULT_TASKS = ZH
+  ? ['提醒调度：监控中', '记忆库：已封存', '网络链路：稳定', '天气监测：待命', '扇区巡检：无异常', '等待操作员返回']
+  : ['Reminder scheduler: watching', 'Memory bank: sealed', 'Network link: stable', 'Weather watch: armed', 'Sector sweep: no anomalies', 'Awaiting operator'];
+const SOURCE = TASKS.length ? TASKS : DEFAULT_TASKS;
+const log = [];
+let nextLog = 0, cursor = 0;
+function pushLog(t) {
+  const d = new Date();
+  log.push({ text: SOURCE[cursor++ % SOURCE.length], at: `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`, born: t });
+  if (log.length > 7) log.shift();
+}
+
+/* ---------- frame ---------- */
+const started = performance.now();
+const WEEK_ZH = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+function frame(now) {
+  const t = (now - started) / 1000;
+  if (t >= nextLog) { pushLog(t); nextLog = t + (log.length < 5 ? .5 : 4 + Math.random() * 3); }
+  x.setTransform(DPR * S, 0, 0, DPR * S, 0, 0);
+  x.fillStyle = '#030305'; x.fillRect(0, 0, VW, VH);
+  const vg = x.createRadialGradient(CX, Z.core, 100, CX, Z.core, Math.max(VW, VH) * .75);
+  vg.addColorStop(0, 'rgba(24,20,14,.55)'); vg.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = vg; x.fillRect(0, 0, VW, VH);
+
+  // Against burn-in the core and the corners drift a little; the lock-screen zones stay where macOS puts them.
+  const ox = Math.sin(t / 97) * 10, oy = Math.cos(t / 131) * 6;
+  const d = new Date();
+
+  // Date and clock, where the lock screen shows them.
+  x.fillStyle = 'rgba(240,226,196,.75)'; x.font = `500 17px ${SANS}`; x.textAlign = 'center';
+  x.fillText(ZH ? `${d.getMonth() + 1}月${d.getDate()}日 ${WEEK_ZH[d.getDay()]}` : d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }), CX, Z.date);
+  x.fillStyle = 'rgba(248,236,210,.94)'; x.font = `200 104px ${SANS}`;
+  x.fillText(`${d.getHours()}:${p2(d.getMinutes())}`, CX, Z.clock);
+
+  // Core.
+  x.save(); x.translate(ox, oy);
+  if (STYLE === 'b') coreSphere(t, Z.core); else if (STYLE === 'c') coreNeural(t, Z.core); else coreHalo(t, Z.core);
+  x.font = `30px ${SERIF}`; x.fillStyle = gold(.92);
+  spaced(`${INFO.aiLatin}  ·  STANDBY`, CX, Z.title, 12);
+  x.font = `300 13px ${CJK}`; x.fillStyle = gold(.55);
+  spaced(ZH ? `${INFO.ai}待命中 · 主控 AI 低功耗运行` : `${INFO.ai} on standby · core AI in low-power mode`, CX, Z.sub, 3);
+  x.restore();
+
+  // The dock: a ring where macOS puts the user picture, and a slot for the password field.
+  if (!LOCK) {
+    const ar = 34, b = .5 + .5 * Math.sin(t * 2 * Math.PI / 4);
+    x.strokeStyle = gold(.30 + .25 * b); x.lineWidth = 1;
+    x.beginPath(); x.arc(CX, Z.avatar, ar + 6, 0, 7); x.stroke();
+    x.strokeStyle = gold(.14); x.beginPath(); x.arc(CX, Z.avatar, ar + 14, 0, 7); x.stroke();
+    for (let i = 0; i < 4; i++) {  // four short arcs turning around the ring
+      const a = t * .4 + i * Math.PI / 2;
+      x.strokeStyle = gold(.7); x.lineWidth = 1.4;
+      x.beginPath(); x.arc(CX, Z.avatar, ar + 14, a, a + .35); x.stroke();
+    }
+    x.font = `11px ${MONO}`; x.fillStyle = gold(.6);
+    spaced(ZH ? `等待操作员 · ${INFO.name}` : `AWAITING OPERATOR · ${INFO.name.toUpperCase()}`, CX, Z.name + 2, 3);
+  }
+  // Hairlines on either side of the password field (kept in both states, the field sits between them).
+  const fw = 120, gap = 26;
+  [[-1], [1]].forEach(([s]) => {
+    const g = x.createLinearGradient(CX + s * (fw + gap), 0, CX + s * (fw + gap + 220), 0);
+    g.addColorStop(0, gold(.45)); g.addColorStop(1, gold(0));
+    x.strokeStyle = g; x.lineWidth = 1;
+    x.beginPath(); x.moveTo(CX + s * (fw + gap), Z.field); x.lineTo(CX + s * (fw + gap + 220), Z.field); x.stroke();
+  });
+
+  x.save(); x.translate(ox * .4, oy * .4);
+  // Upper corners: identity and away time.
+  x.font = `11px ${MONO}`; x.textAlign = 'left'; x.fillStyle = gold(.75);
+  x.fillText(`${INFO.aiLatin} CORE  //  v1`, 64, 64);
+  const blink = Math.floor(t * 1.2) % 2 === 0;
+  x.fillStyle = blink ? 'rgba(255,214,120,.95)' : 'rgba(255,214,120,.25)';
+  x.beginPath(); x.arc(68, 80, 3, 0, 7); x.fill();
+  x.fillStyle = gold(.6); x.fillText(ZH ? '状态 · 待命' : 'STATUS · STANDBY', 78, 84);
+  const away = Math.floor(t), hh = Math.floor(away / 3600), mm = Math.floor(away / 60) % 60, ss = away % 60;
+  x.textAlign = 'right'; x.fillStyle = gold(.75);
+  x.fillText(ZH ? '离开时长' : 'AWAY', VW - 64, 64);
+  x.font = `200 22px ${SANS}`; x.fillStyle = 'rgba(240,226,196,.85)';
+  x.fillText(`${p2(hh)}:${p2(mm)}:${p2(ss)}`, VW - 64, 90);
+
+  // Lower left: the task log.
+  const baseY = VH - 70;
+  x.font = `11px ${MONO}`; x.textAlign = 'left'; x.fillStyle = gold(.85);
+  x.fillText(ZH ? '任务日志' : 'TASK LOG', 64, baseY - 7 * 20 - 12);
+  x.strokeStyle = gold(.3); x.beginPath(); x.moveTo(64, baseY - 7 * 20 - 4); x.lineTo(64 + 300, baseY - 7 * 20 - 4); x.stroke();
+  log.forEach((e, i) => {
+    const fade = cl((t - e.born) / .5) * (.35 + .65 * (i + 1) / log.length), y = baseY - (log.length - 1 - i) * 20;
+    x.fillStyle = gold(.45 * fade); x.fillText(e.at, 64, y);
+    x.fillStyle = `rgba(240,226,196,${.85 * fade})`; x.font = `12px ${CJK}`; x.fillText(e.text, 140, y); x.font = `11px ${MONO}`;
+  });
+
+  // Lower right: the system.
+  const rows = [
+    [ZH ? '系统' : 'SYSTEM', INFO.os],
+    [ZH ? '芯片' : 'CHIP', INFO.cores ? `${INFO.chip} · ${INFO.cores} ${ZH ? '核' : 'cores'}` : INFO.chip],
+    [ZH ? '内存' : 'MEMORY', INFO.mem || '—'],
+    [ZH ? '主机' : 'HOST', INFO.host],
+    [ZH ? '显示器' : 'DISPLAYS', INFO.displays],
+    [ZH ? '核心' : 'CORE', `${INFO.ai} · ${ZH ? '低功耗' : 'low power'}`],
+  ];
+  x.textAlign = 'right'; x.fillStyle = gold(.85);
+  x.fillText(ZH ? '系统状态' : 'SYSTEM STATUS', VW - 64, baseY - 7 * 20 - 12);
+  x.strokeStyle = gold(.3); x.beginPath(); x.moveTo(VW - 64 - 300, baseY - 7 * 20 - 4); x.lineTo(VW - 64, baseY - 7 * 20 - 4); x.stroke();
+  rows.forEach(([k, v], i) => {
+    const y = baseY - (rows.length - 1 - i) * 20;
+    x.textAlign = 'right'; x.font = `12px ${CJK}`; x.fillStyle = 'rgba(240,226,196,.85)'; x.fillText(v, VW - 64, y);
+    x.font = `11px ${MONO}`; x.fillStyle = gold(.45); x.fillText(k, VW - 64 - 230, y);
+  });
+  x.restore();
+
+  // Corner brackets.
+  x.strokeStyle = gold(.4); x.lineWidth = 1;
+  [[36, 36, 1, 1], [VW - 36, 36, -1, 1], [36, VH - 36, 1, -1], [VW - 36, VH - 36, -1, -1]].forEach(([a, b, u, v]) => {
+    x.beginPath(); x.moveTo(a, b + v * 46); x.lineTo(a, b); x.lineTo(a + u * 46, b); x.stroke();
+  });
+
+  if (LOCK) mockLock();
+}
+
+// Preview only: roughly what macOS draws on top when the password is asked for.
+function mockLock() {
+  x.fillStyle = 'rgba(200,200,200,.35)'; x.beginPath(); x.arc(CX, Z.avatar, 34, 0, 7); x.fill();
+  x.fillStyle = 'rgba(255,255,255,.9)'; x.font = `500 26px ${CJK}`; x.textAlign = 'center';
+  x.fillText([...INFO.name][0] || '', CX, Z.avatar + 9);
+  x.font = `500 15px ${CJK}`; x.fillStyle = 'rgba(255,255,255,.92)'; x.fillText(INFO.name, CX, Z.name);
+  const w = 240, h = 30;
+  x.fillStyle = 'rgba(255,255,255,.18)';
+  x.beginPath(); x.roundRect(CX - w / 2, Z.field - h / 2, w, h, h / 2); x.fill();
+  x.font = `13px ${CJK}`; x.fillStyle = 'rgba(255,255,255,.55)'; x.fillText(ZH ? '输入密码' : 'Enter Password', CX, Z.field + 5);
+  x.font = `11px ${CJK}`; x.fillStyle = 'rgba(255,255,255,.5)'; x.fillText(ZH ? '触控 ID 或输入密码' : 'Touch ID or Enter Password', CX, Z.field + 38);
+}
+
+// About 30 frames per second is plenty for a screen saver.
+let last = 0;
+function loop(now) { if (now - last >= 33) { last = now; frame(now); } requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
