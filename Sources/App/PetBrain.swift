@@ -78,7 +78,8 @@ final class PetBrain {
         lines.append("- 添加日程：经 add_event 直接添加到系统日历\(CalendarWatcher.authorized ? "" : "（macOS 会先请求日历权限）")。")
         lines.append("- 执行代理（DeepSeek Harness）：经 agent_task 交给它，拥有这台 Mac 的完整权限——读写任意文件、运行任何命令、"
             + "用 AppleScript 操作其它应用（在应用里点按、输入，在“终端”里打开 ssh 等会话再交给主人接手）、修改日程等；"
-            + "能做什么只由 macOS 的授权与 dsh 自身决定，桌宠不另设限制；完成后你会汇报结果\(DshAgent.executable == nil ? "（尚未安装 dsh）" : "")。")
+            + "能做什么只由 macOS 的授权与 dsh 自身决定，桌宠不另设限制。它优先在图形界面上让主人看见过程：命令在“终端”窗口里执行"
+            + "（远程服务器先 ssh 登录再输入命令），写好的文件会在访达里打开所在文件夹；完成后你会汇报结果\(DshAgent.executable == nil ? "（尚未安装 dsh）" : "")。")
         lines.append("- 设置项都在右键菜单“设置…”中。")
         return "\n\n## 你的能力（被问到能做什么时据此回答，指出入口；不要编造未列出的功能）\n" + lines.joined(separator: "\n")
     }

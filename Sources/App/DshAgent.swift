@@ -69,8 +69,18 @@ final class DshAgent {
         以下任务由主人通过桌面宠物交给你。你在主人的 Mac 上拥有完整权限：可以读写任意位置的文件、运行任何命令，\
         也可以用 osascript（AppleScript / JXA）操作其它应用，例如让“终端”打开新窗口执行命令（tell application "Terminal" to do script "…"）\
         或通过 System Events 点按、输入。macOS 第一次会弹出“自动化”或“辅助功能”授权，由主人在系统里决定。\
-        需要交互的会话（如 ssh 登录后继续操作）请在“终端”中打开，交给主人接手。默认工作目录是 \(Self.workspace.path)，\
-        没有指定位置的新文件放在这里。完成后用中文简要汇报结果（不超过 150 字），列出新建或修改的文件。
+        默认工作目录是 \(Self.workspace.path)，没有指定位置的新文件放在这里。
+
+        做事方式：优先在图形界面上让主人看见过程，而不是在后台运行后只告诉结果。
+        1. 主人能看到的命令（查看信息、运行程序、连接服务器等）在“终端”里可见地执行：先打开新窗口 \
+        osascript -e 'tell application "Terminal"' -e 'activate' -e 'do script "命令"' -e 'end tell'，\
+        同一窗口里的后续命令用 osascript -e 'tell application "Terminal" to do script "命令" in front window'。
+        2. 远程服务器：先在终端窗口里 ssh 登录（如 do script "ssh car-data"），等几秒连上后，再在同一窗口里输入要执行的命令\
+        （如 df -h）；不要用 ssh 主机 "命令" 在后台一次性执行。窗口和 ssh 会话保持打开，交给主人继续使用。
+        3. 需要汇报结果时，读取终端窗口的内容：osascript -e 'tell application "Terminal" to get contents of selected tab of front window'。
+        4. 写好或修改文件后，用 open -R "文件路径" 在访达里打开所在文件夹并选中该文件；主人要看内容时再用 open "文件路径" 打开。
+        5. 搜索、读取文件这类主人不需要看的中间步骤可以直接在后台完成。
+        完成后用中文简要汇报结果（不超过 150 字），列出新建或修改的文件。
 
         任务：\(task)
         """
