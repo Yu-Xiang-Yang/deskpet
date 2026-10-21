@@ -23,7 +23,17 @@ final class DeskPetSaverView: ScreenSaverView {
         animationTimeInterval = 1  // the page animates itself
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
-        let web = WKWebView(frame: bounds, configuration: WKWebViewConfiguration())
+        // The screen saver host often reports its window as occluded; WebKit would then treat the page as hidden,
+        // freeze its layers and throttle its timers, which leaves the screen black. Both are switched off here
+        // (private but long-standing WebKit switches, used only when available).
+        let config = WKWebViewConfiguration()
+        for name in ["_setHiddenPageDOMTimerThrottlingEnabled:", "_setPageVisibilityBasedProcessSuppressionEnabled:"] {
+            let selector = NSSelectorFromString(name)
+            if config.preferences.responds(to: selector) { config.preferences.perform(selector, with: nil) }  // nil = NO
+        }
+        let web = WKWebView(frame: bounds, configuration: config)
+        let occlusion = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
+        if web.responds(to: occlusion) { web.perform(occlusion, with: nil) }  // nil = NO
         web.autoresizingMask = [.width, .height]
         web.setValue(false, forKey: "drawsBackground")
         addSubview(web)
