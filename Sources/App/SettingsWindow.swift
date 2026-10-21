@@ -9,7 +9,6 @@ final class SettingsWindowController {
     var onCheckWeather: ((@escaping (String) -> Void) -> Void)?
     var onPreviewMeow: (() -> Void)?
     var onInstallSaver: (() -> String)?
-    var onChooseCoverPicture: (() -> Void)?
 
     func show(tab: SettingsView.Tab = .general) {
         if window == nil {
@@ -20,8 +19,7 @@ final class SettingsWindowController {
                 onRunDailyTasks: { [weak self] in self?.onRunDailyTasks?() },
                 onCheckWeather: { [weak self] report in self?.onCheckWeather?(report) },
                 onPreviewMeow: { [weak self] in self?.onPreviewMeow?() },
-                onInstallSaver: { [weak self] in self?.onInstallSaver?() ?? "" },
-                onChooseCoverPicture: { [weak self] in self?.onChooseCoverPicture?() }))
+                onInstallSaver: { [weak self] in self?.onInstallSaver?() ?? "" }))
             let w = NSWindow(contentViewController: hosting)
             w.title = tr("桌宠设置", "DeskPet Settings")
             w.styleMask = [.titled, .closable, .miniaturizable]
@@ -45,7 +43,6 @@ struct SettingsView: View {
     var onCheckWeather: (@escaping (String) -> Void) -> Void
     var onPreviewMeow: () -> Void
     var onInstallSaver: () -> String
-    var onChooseCoverPicture: () -> Void
     @State private var saverResult = ""
 
     @ObservedObject private var memory = MemoryStore.shared
@@ -175,14 +172,6 @@ struct SettingsView: View {
                 }
                 Text(tr("屏保与开机动画同一风格：桌宠 AI 待命画面，时钟和头像位置与锁屏对齐，显示任务日志与系统状态。",
                         "The screen saver matches the intro: the pet AI on standby, clock and user picture aligned with the lock screen, with a task log and system status."))
-                    .font(.caption).foregroundStyle(.secondary)
-                Toggle(tr("桌面遮罩（锁屏与桌面用不同图片）", "Desktop cover (different pictures for lock screen and desktop)"), isOn: $settings.desktopCover)
-                HStack {
-                    Button(tr("选择桌面图片…", "Choose desktop picture…")) { onChooseCoverPicture() }
-                    Button(tr("打开图片文件夹", "Open picture folder")) { NSWorkspace.shared.open(DesktopCover.folder) }
-                }
-                Text(tr("锁屏显示系统墙纸，桌面上由桌宠在墙纸之上、图标与小组件之下铺一层这里的图片。把系统墙纸设为锁屏想要的图，桌面图片放进图片文件夹（按显示器 UUID 命名，或 default.png）。桌宠未运行时会露出系统墙纸。",
-                        "The lock screen shows the system wallpaper; on the desktop the pet lays this picture over it, below the icons and widgets. Set the system wallpaper to the lock screen picture and put the desktop picture in the folder (named by display UUID, or default.png). While the pet is not running, the system wallpaper shows."))
                     .font(.caption).foregroundStyle(.secondary)
                 Toggle(tr("登录时启动", "Launch at login"), isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, on in
