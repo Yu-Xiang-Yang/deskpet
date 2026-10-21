@@ -77,6 +77,8 @@ final class AppSettings: ObservableObject {
     @Published var calendarLeadMinutes: Int { didSet { defaults.set(calendarLeadMinutes, forKey: "calendarLeadMinutes") } }
     /// Give today's and tomorrow's events to the model (their titles then reach the model provider).
     @Published var calendarInChat: Bool { didSet { defaults.set(calendarInChat, forKey: "calendarInChat") } }
+    /// In research mode the whale girl (ResearchFigure) replaces the Live2D character, when her picture is installed.
+    @Published var researchFigure: Bool { didSet { defaults.set(researchFigure, forKey: "researchFigure") } }
     /// Warn when the DeepSeek balance runs low.
     @Published var deepseekBalanceAlerts: Bool { didSet { defaults.set(deepseekBalanceAlerts, forKey: "deepseekBalanceAlerts") } }
     /// Announce Claude limits that run low (data from the Claude Usage Widget).
@@ -125,6 +127,7 @@ final class AppSettings: ObservableObject {
             "weatherAlerts": true,
             "claudeUsageAlerts": true,
             "deepseekBalanceAlerts": true,
+            "researchFigure": true,
             "calendarAlerts": false,
             "calendarLeadMinutes": 10,
             "calendarInChat": false,
@@ -166,6 +169,7 @@ final class AppSettings: ObservableObject {
         weatherAlerts = defaults.bool(forKey: "weatherAlerts")
         claudeUsageAlerts = defaults.bool(forKey: "claudeUsageAlerts")
         deepseekBalanceAlerts = defaults.bool(forKey: "deepseekBalanceAlerts")
+        researchFigure = defaults.bool(forKey: "researchFigure")
         calendarAlerts = defaults.bool(forKey: "calendarAlerts")
         calendarLeadMinutes = defaults.integer(forKey: "calendarLeadMinutes")
         calendarInChat = defaults.bool(forKey: "calendarInChat")

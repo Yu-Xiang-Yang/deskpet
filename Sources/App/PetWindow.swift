@@ -266,6 +266,11 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
         whenReady { [weak self] in self?.webView.call("pet.setStatus", text.map(JSON.string) ?? .null) }
     }
 
+    /// The research-mode figure (nil: keep the Live2D character in research mode).
+    func setResearchFigure(_ url: URL?) {
+        whenReady { [weak self] in self?.webView.call("pet.setResearchFigure", url.map { .string($0.absoluteString) } ?? .null) }
+    }
+
     func setResearch(_ on: Bool) {
         whenReady { [weak self] in self?.webView.call("pet.setResearch", .bool(on)) }
     }
@@ -341,6 +346,7 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
             config["model"] = .string(model.modelURL.absoluteString)
             if let map = model.map { config["map"] = map }
         }
+        if let figure = ResearchFigure.url { config["researchFigure"] = .string(figure.absoluteString) }
         webView.call("pet.init", .object(config))
     }
 
@@ -584,5 +590,18 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
     func rightMouseDown(_ event: NSEvent, in view: NSView) {
         guard let menu = delegate?.petContextMenu() else { return }
         NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
+}
+
+/// The research-mode figure: the maid whale girl (DeepSeek-tan) as a still picture, cut out of the art by ZipZipPipe
+/// after the original character "溟月" by 上善无形, used under CC BY-NC-SA 4.0. The picture is not part of the
+/// app; it lives in ~/Library/Application Support/DeskPet/characters/whale-girl.
+enum ResearchFigure {
+    static let credit = "鲸鱼娘（女仆装）：ZipZipPipe，基于上善无形原创角色“溟月”的二次设计，CC BY-NC-SA 4.0；DeskPet 抠图并缩放，同协议发布，不得商用。"
+    static var file: URL { AppPaths.charactersDir.appendingPathComponent("whale-girl/whale-girl-1200.png") }
+    static var installed: Bool { FileManager.default.fileExists(atPath: file.path) }
+    /// The picture's address for the page, when it is installed and turned on.
+    static var url: URL? {
+        AppSettings.shared.researchFigure && installed ? AppSchemeHandler.url("characters/whale-girl/whale-girl-1200.png") : nil
     }
 }

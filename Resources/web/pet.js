@@ -14,6 +14,7 @@
   const stage = document.getElementById("stage");
   const actor = document.getElementById("actor");
   const bubbles = document.getElementById("bubbles");
+  const figure = document.getElementById("figure");
 
   // Semantic motions and how long the one-shot ones last (ms); sleepy and think stay until replaced.
   const MOTIONS = ["idle", "happy", "wave", "nod", "shake", "think", "surprised", "sleepy", "shy", "eat", "sad"];
@@ -26,6 +27,12 @@
   let sleeping = false;
   let talking = false;
   let researchOn = false;
+  // Research-mode figure: a still picture shown instead of the Live2D character (see figureFrame).
+  let figureURL = null;
+  let figureOn = false;
+  let figureMotion = { name: "idle", t0: 0 };
+  let figureAlpha = null;  // { w, h, data } of the picture, for hit testing
+  let lean = 0, leanTarget = 0;
 
   // ---------------------------------------------------------------- motions
 
@@ -33,6 +40,7 @@
     if (!MOTIONS.includes(motion)) motion = "idle";
     clearTimeout(motionTimer);
     current = motion;
+    figureMotion = { name: motion, t0: performance.now() };
     playLive2D(motion);
     const ms = MOTION_MS[motion];
     if (ms) motionTimer = setTimeout(() => play(sleeping ? "sleepy" : "idle"), ms);
@@ -40,6 +48,8 @@
 
   function lookAt(x, y) {
     trackHover(x, y);
+    const fr = figure.getBoundingClientRect();
+    leanTarget = Math.max(-1, Math.min(1, (x - (fr.left + fr.width / 2)) / 400)) * 1.6;
     if (!l2d) return;
     const [cx, cy] = canvasPoint(x, y);
     l2d.model.focus(cx, cy);
@@ -331,6 +341,14 @@
     if (bubble && el.closest("[data-close]")) { dismiss(bubble, true); return "bubble"; }
     if (bubble && bubble.dataset.conversation) return "answer:" + bubble.dataset.conversation;
     if (bubble) { dismiss(bubble, true); return "bubble"; }
+    if (el === figure && figureOn) {
+      const r = figure.getBoundingClientRect();
+      if (figureAlpha) {
+        const ax = Math.floor((x - r.left) / r.width * figureAlpha.w), ay = Math.floor((y - r.top) / r.height * figureAlpha.h);
+        if (ax < 0 || ay < 0 || ax >= figureAlpha.w || ay >= figureAlpha.h || figureAlpha.data[(ay * figureAlpha.w + ax) * 4 + 3] < 24) return null;
+      }
+      return y < r.top + r.height * 0.24 ? "head" : "body";
+    }
     if (el === canvas && l2d) {
       const [lx, ly] = canvasPoint(x, y);
       const names = l2d.model.hitTest(lx, ly).map((n) => n.toLowerCase());
@@ -356,12 +374,13 @@
   function computeMask() {
     const cols = Math.ceil(window.innerWidth / CELL), rows = Math.ceil(window.innerHeight / CELL);
     let alpha = null, cr = null;
-    if (l2d) {
-      cr = canvas.getBoundingClientRect();
+    const drawn = figureOn ? figure : (l2d ? canvas : null);
+    if (drawn) {
+      cr = drawn.getBoundingClientRect();
       const w = Math.max(1, Math.ceil(cr.width / CELL)), h = Math.max(1, Math.ceil(cr.height / CELL));
       probe.width = w; probe.height = h;
       probeCtx.clearRect(0, 0, w, h);
-      try { probeCtx.drawImage(canvas, 0, 0, w, h); alpha = { w, h, data: probeCtx.getImageData(0, 0, w, h).data }; } catch (_) {}
+      try { probeCtx.drawImage(drawn, 0, 0, w, h); alpha = { w, h, data: probeCtx.getImageData(0, 0, w, h).data }; } catch (_) {}
     }
     let bits = "";
     for (let r = 0; r < rows; r++) {
@@ -370,8 +389,8 @@
         const el = document.elementFromPoint(x, y);
         let solid = false;
         if (el && el !== document.body && el !== root && el !== stage && el !== actor && el !== bubbles) {
-          if (el === canvas) {
-            if (alpha) {
+          if (el === canvas || el === figure) {
+            if (alpha && el === drawn) {
               const ax = Math.min(alpha.w - 1, Math.floor((x - cr.left) / CELL)), ay = Math.min(alpha.h - 1, Math.floor((y - cr.top) / CELL));
               solid = alpha.data[(ay * alpha.w + ax) * 4 + 3] > 24;
             }
@@ -395,12 +414,13 @@
   const feetCtx = feetProbe.getContext("2d", { willReadFrequently: true });
   let lastFeet = null;
   function measureFeet() {
-    if (!l2d) return;
-    const cr = canvas.getBoundingClientRect();
+    const drawn = figureOn ? figure : (l2d ? canvas : null);
+    if (!drawn) return;
+    const cr = drawn.getBoundingClientRect();
     const k = 3, w = Math.max(1, Math.ceil(cr.width / k)), h = Math.max(1, Math.ceil(cr.height / k));
     feetProbe.width = w;
     feetProbe.height = h;
-    try { feetCtx.drawImage(canvas, 0, 0, w, h); } catch (_) { return; }
+    try { feetCtx.drawImage(drawn, 0, 0, w, h); } catch (_) { return; }
     const data = feetCtx.getImageData(0, 0, w, h).data;
     let row = -1;
     for (let y = h - 1; y >= 0 && row < 0; y--) {
@@ -576,6 +596,66 @@
     return [(x - r.left) / k, (y - r.top) / k];
   }
 
+  // ---------------------------------------------------------------- research-mode figure
+  // A single picture cannot move its parts, so the whole figure breathes (a slight stretch about the feet),
+  // sways, leans towards the pointer, and acts out the motions with hops, tilts and shakes.
+
+  function updateFigure() {
+    const on = researchOn && !!figureURL && figure.complete && figure.naturalWidth > 0;
+    if (on === figureOn) return;
+    figureOn = on;
+    root.classList.toggle("figure-on", on);
+    lastMask = "";
+    lastFeet = null;
+  }
+
+  function setResearchFigure(url) {
+    figureURL = url || null;
+    figureAlpha = null;
+    if (!figureURL) { updateFigure(); return; }
+    figure.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(figure.naturalWidth / 4));
+      c.height = Math.max(1, Math.round(figure.naturalHeight / 4));
+      const ctx = c.getContext("2d", { willReadFrequently: true });
+      try { ctx.drawImage(figure, 0, 0, c.width, c.height); figureAlpha = { w: c.width, h: c.height, data: ctx.getImageData(0, 0, c.width, c.height).data }; } catch (_) {}
+      updateFigure();
+    };
+    figure.onerror = () => { log("figure failed to load:", figureURL); figureURL = null; updateFigure(); };
+    figure.src = figureURL;
+  }
+
+  function figureFrame(now) {
+    requestAnimationFrame(figureFrame);
+    if (!figureOn) return;
+    const t = now / 1000, e = (now - figureMotion.t0) / 1000;
+    const TAU = 2 * Math.PI;
+    const breath = Math.sin(TAU * t / (sleeping ? 5 : 3.6));
+    let rot = 0.6 * Math.sin(TAU * t / 5.5), dx = 0, dy = 0;
+    let sy = 1 + (sleeping ? 0.014 : 0.009) * breath, sx = 1 - (sy - 1) * 0.5;
+    const within = (d) => (e < d ? 1 - e / d : 0);           // fades out over d seconds
+    const bump = (d) => (e < d ? Math.sin(Math.PI * e / d) : 0); // 0 → 1 → 0 over d seconds
+    switch (figureMotion.name) {
+      case "happy": dy -= 16 * Math.abs(Math.sin(TAU * 1.5 * e)) * within(1.8); sy += 0.02 * bump(1.8); break;
+      case "wave": rot += 4 * Math.sin(TAU * 2.2 * e) * within(2.2); break;
+      case "nod": dy += 6 * Math.max(0, Math.sin(TAU * 2 * e)) * within(1.1); sy -= 0.02 * Math.max(0, Math.sin(TAU * 2 * e)) * within(1.1); break;
+      case "shake": rot += 3.5 * Math.sin(TAU * 3 * e) * within(1.1); break;
+      case "think": { const k = Math.min(1, e * 3); rot -= 3 * k; dx -= 4 * k; break; }
+      case "surprised": dy -= 20 * bump(0.45); sy += 0.035 * bump(0.45); sx -= 0.02 * bump(0.45); break;
+      case "sleepy": { const k = Math.min(1, e * 1.5); rot += 4 * k; dy += 3 * k; break; }
+      case "shy": rot += 2.5 * Math.sin(TAU * 1.6 * e) * within(2.6); sx -= 0.015 * bump(2.6); break;
+      case "eat": dy += 4 * Math.abs(Math.sin(TAU * 2 * e)) * within(4.2); break;
+      case "sad": { const k = Math.min(1, e * 2) * within(3.2 + 0.5) ; sy -= 0.03 * k; rot += 1.5 * k; break; }
+    }
+    const g = grooveFrame();
+    if (g) { rot += g.tilt * 0.3; dx += g.body * 1.4; dy -= g.nod * 0.5; sy += 0.01 * g.level * Math.max(0, g.nod / 8); }
+    if (talking && !sleeping) dy -= 1.6 * Math.abs(Math.sin(now / 85));
+    lean += (leanTarget - lean) * 0.06;
+    rot += lean;
+    figure.style.transform = `translateX(-50%) translate(${dx.toFixed(2)}px, ${dy.toFixed(2)}px) rotate(${rot.toFixed(3)}deg) scale(${sx.toFixed(4)}, ${sy.toFixed(4)})`;
+  }
+  requestAnimationFrame(figureFrame);
+
   // ---------------------------------------------------------------- API for the native shell
 
   window.pet = {
@@ -585,6 +665,7 @@
       if (cfg.strings) strings = Object.assign(strings, cfg.strings);
       if (cfg.layout) window.pet.setLayout(cfg.layout[0], cfg.layout[1]);
       window.pet.setBubblesBelow(!!cfg.below);
+      if (cfg.researchFigure) setResearchFigure(cfg.researchFigure);
       let problem = cfg.model ? null : (cfg.missing || "没有找到 Live2D 模型。");
       if (cfg.model) {
         try { await initLive2D(cfg); }
@@ -602,8 +683,10 @@
     setResearch(on) {
       researchOn = !!on;
       root.classList.toggle("research", researchOn);
+      updateFigure();
       if (!researchOn) bubbles.querySelectorAll(".bubble.answer").forEach((b) => dismiss(b, true));
     },
+    setResearchFigure,
     setDragging(on) { if (on) play("surprised"); },
     setSleeping(on) {
       sleeping = !!on;
@@ -615,7 +698,7 @@
     setBubblesBelow(on) { root.classList.toggle("bubbles-below", !!on); },
     /** A cat sound (meow.js) for characters whose pet-map.json declares "voice": "cat"; `volume` 0…1. */
     meow(kind, volume) {
-      if (!l2d || l2d.map.voice !== "cat" || !window.Meow) return;
+      if (!l2d || l2d.map.voice !== "cat" || !window.Meow || figureOn) return;  // the whale girl does not meow
       window.Meow.play(kind, volume).catch((e) => log("meow failed:", e && e.message));
     },
     /** Horizontal range of the page (CSS pixels) that is on screen. */

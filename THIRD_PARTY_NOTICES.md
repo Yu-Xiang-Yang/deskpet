@@ -24,6 +24,15 @@ DeskPet 源代码以 MIT 许可证发布。下列组件与数据来源由各自�
 | `meow1`–`meow4` | [BigSoundBank #0098 “Small mewing of a cat”](https://bigsoundbank.com/small-mewing-of-a-cat-s0098.html) | Joseph Sardin |
 | `mew1`–`mew3`、`trill1`、`trill2`、`purr` | [OpenGameArt “cat purr meow”](https://opengameart.org/content/cat-purr-meow)（`cat_mewfood`、`cat_softmew`、`cat_mewpurr`、`cat_mewpurr2`、`cat_purrsleepy_loop`） | Kerzoven |
 
+## 科研模式形象（不纳入版本库）
+
+科研模式的鲸鱼娘形象为单张立绘，存放于 `~/Library/Application Support/DeskPet/characters/whale-girl/`，不随源代码或构建产物分发。
+
+| 文件 | 来源 | 作者与许可 |
+| --- | --- | --- |
+| `original.png` | [萌娘共享 File:女仆装鲸鱼娘.png](https://zh.moegirl.org.cn/File:%E5%A5%B3%E4%BB%86%E8%A3%85%E9%B2%B8%E9%B1%BC%E5%A8%98.png) | ZipZipPipe 基于上善无形原创角色“溟月”的二次设计（女仆装鲸鱼娘）；[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)，须署名、不得商用、衍生作品以相同方式共享 |
+| `whale-girl-1200.png` | 由 `original.png` 生成 | 衍生作品：经 macOS Vision 主体提取与背景去除后缩放至 1200 像素高；依原协议以 CC BY-NC-SA 4.0 发布，不得商用 |
+
 ## 不包含于本项目、须由使用者自行获取的组件
 
 | 组件 | 许可 | 说明 |

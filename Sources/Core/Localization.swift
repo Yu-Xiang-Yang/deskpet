@@ -61,6 +61,8 @@ enum AppPaths {
     }
 
     static var conversationsDir: URL { dataDir.appendingPathComponent("conversations", isDirectory: true) }
+    /// Still pictures of characters (not Live2D), e.g. the research-mode figure.
+    static var charactersDir: URL { dataDir.appendingPathComponent("characters", isDirectory: true) }
 
     /// User-installed Live2D models; each subdirectory holds one model.
     static var userModelsDir: URL { dataDir.appendingPathComponent("models", isDirectory: true) }

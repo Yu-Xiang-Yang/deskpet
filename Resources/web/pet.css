@@ -33,6 +33,10 @@ html, body {
 }
 
 #actor { position: absolute; inset: 0; transform-origin: 50% 100%; }
+#figure { position: absolute; left: 50%; bottom: 0; height: 100%; display: none; transform-origin: 50% 100%;
+          transform: translateX(-50%); -webkit-user-drag: none; }
+.figure-on #figure { display: block; }
+.figure-on #live2d { visibility: hidden; }
 
 /* Research mode: a gold ring behind the character, fading in and turning slowly. */
 #aura {

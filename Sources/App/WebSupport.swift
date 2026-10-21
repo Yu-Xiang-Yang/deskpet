@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 ///   /web/…              → Contents/Resources/web
 ///   /models/bundle/…    → Contents/Resources/models
 ///   /models/user/…      → ~/Library/Application Support/DeskPet/models
+///   /characters/…       → ~/Library/Application Support/DeskPet/characters
 /// Using one custom origin lets WebGL load model textures without file:// restrictions.
 final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "deskpet"
@@ -37,7 +38,7 @@ final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
 
-    /// Maps a request path onto a file, refusing anything outside the three roots.
+    /// Maps a request path onto a file, refusing anything outside the four roots.
     static func resolve(_ rawPath: String) -> URL? {
         let path = rawPath.removingPercentEncoding ?? rawPath
         let parts = path.split(separator: "/").map(String.init)
@@ -51,6 +52,8 @@ final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
             root = bundledModels; rest = parts.dropFirst(2)
         case "models" where parts.count > 2 && parts[1] == "user":
             root = AppPaths.userModelsDir; rest = parts.dropFirst(2)
+        case "characters":
+            root = AppPaths.charactersDir; rest = parts.dropFirst()
         default:
             return nil
         }

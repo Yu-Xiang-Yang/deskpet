@@ -100,6 +100,9 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             self?.calendar.requestAccess { _ in self?.calendar.check(force: true, report: report) }
         }
 
+        settings.$researchFigure.dropFirst().removeDuplicates().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.pet.setResearchFigure(ResearchFigure.url) }  // after didSet stored it
+        }.store(in: &subscriptions)
         settings.$petScale.dropFirst().removeDuplicates().sink { [weak self] in self?.pet.scale = CGFloat($0) }.store(in: &subscriptions)
         settings.$petLayer.dropFirst().sink { [weak self] layer in
             self?.pet.setLayer(layer)
