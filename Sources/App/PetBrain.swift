@@ -338,6 +338,9 @@ final class PetBrain {
         }
     }
 
+    /// Leaves the sleeping state without the "welcome back" line (the login intro greets instead).
+    func wakeQuietly() { wake() }
+
     private func wake() {
         guard sleeping else { return }
         sleeping = false

@@ -70,6 +70,8 @@ final class AppSettings: ObservableObject {
     @Published var researchModeName: String { didSet { defaults.set(researchModeName, forKey: "researchModeName") } }
     /// The login intro (terminal log → glitch → white-and-gold welcome) once after every system start.
     @Published var bootIntro: Bool { didSet { defaults.set(bootIntro, forKey: "bootIntro") } }
+    /// The intro also when the owner returns: after the display slept, the screen was locked or the screen saver ran.
+    @Published var introOnReturn: Bool { didSet { defaults.set(introOnReturn, forKey: "introOnReturn") } }
     /// Announce Claude limits that run low (data from the Claude Usage Widget).
     @Published var claudeUsageAlerts: Bool { didSet { defaults.set(claudeUsageAlerts, forKey: "claudeUsageAlerts") } }
     /// Sway to music played by other apps, and whether to follow the real beat (system-audio tap).
@@ -116,6 +118,7 @@ final class AppSettings: ObservableObject {
             "weatherAlerts": true,
             "claudeUsageAlerts": true,
             "bootIntro": false,
+            "introOnReturn": false,
             "followBeat": true,
         ])
         provider = ProviderKind(rawValue: defaults.string(forKey: "provider") ?? "") ?? .anthropic
@@ -152,6 +155,7 @@ final class AppSettings: ObservableObject {
         weatherAlerts = defaults.bool(forKey: "weatherAlerts")
         claudeUsageAlerts = defaults.bool(forKey: "claudeUsageAlerts")
         bootIntro = defaults.bool(forKey: "bootIntro")
+        introOnReturn = defaults.bool(forKey: "introOnReturn")
         researchModeName = defaults.string(forKey: "researchModeName") ?? ""
         followBeat = defaults.bool(forKey: "followBeat")
     }

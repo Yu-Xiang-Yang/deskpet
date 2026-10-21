@@ -32,6 +32,12 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private let bootIntro = BootIntro()
     /// While the login intro plays, the pet's greeting waits.
     private var introPlaying = false
+    /// Since when the owner has been away (display asleep, screen locked or screen saver running).
+    private var awaySince: Date?
+    private var screenLocked = false
+    private var returnWork: DispatchWorkItem?
+    /// Shorter absences (a display that only dimmed for a moment) do not replay the intro.
+    static let minimumAway: TimeInterval = 30
     private var petReady = false
     private let music = MusicMonitor()
     private var lastMusicRemark = Date.distantPast
@@ -108,6 +114,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         wanderTimer = timer
 
         installTestHooks()
+        observeReturns()
         if BootIntro.dueThisBoot, ProcessInfo.processInfo.environment["DESKPET_DIR"] == nil {
             BootIntro.markPlayedThisBoot()
             playIntro()
@@ -138,6 +145,53 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             climber.ownerDropped()  // still standing on the window where it was left?
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.runDailyTasksIfDue() }
         }
+    }
+
+    // MARK: Coming back
+
+    /// Away: the display sleeps, the screen locks or the screen saver starts. Back: the display wakes, the screen
+    /// is unlocked or the screen saver stops — while the screen is still locked, the intro waits for the unlock.
+    private func observeReturns() {
+        let ws = NSWorkspace.shared.notificationCenter
+        ws.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.wentAway() }
+        }
+        ws.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.cameBack() }
+        }
+        let dn = DistributedNotificationCenter.default()
+        let events: [(String, Bool?)] = [("com.apple.screensaver.didstart", nil), ("com.apple.screensaver.didstop", nil),
+                                         ("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)]
+        for (name, locked) in events {
+            let away = name.hasSuffix("didstart") || locked == true
+            dn.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    if let locked { self?.screenLocked = locked }
+                    if away { self?.wentAway() } else { self?.cameBack() }
+                }
+            }
+        }
+    }
+
+    private func wentAway() {
+        if awaySince == nil { awaySince = Date() }
+        returnWork?.cancel()
+    }
+
+    private func cameBack() {
+        guard let since = awaySince, !screenLocked else { return }
+        returnWork?.cancel()
+        // A moment later: a lock screen that follows the screen saver is reported just after it stops.
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.screenLocked, self.awaySince != nil else { return }
+            self.awaySince = nil
+            guard self.settings.bootIntro, self.settings.introOnReturn,
+                  Date().timeIntervalSince(since) >= Self.minimumAway else { return }
+            self.brain.wakeQuietly()
+            self.playIntro()
+        }
+        returnWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
     }
 
     /// The login intro on every screen; afterwards the pet waves, meows and says hello.
@@ -378,6 +432,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             let command = note.object as? String ?? ""
             MainActor.assumeIsolated {
                 guard let self else { return }
+                NSLog("DeskPet test hook: %@", command)
                 if command == "research-on" { self.setResearchMode(true) }
                 else if command == "research-off" { self.setResearchMode(false) }
                 else if command.hasPrefix("ask:") { self.chatPanel.onSend?(String(command.dropFirst(4))) }
@@ -387,6 +442,8 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
                 else if command == "climb" { self.climber.climbNow() }
                 else if command == "usage" { self.reportClaudeUsage() }
                 else if command == "intro" { self.playIntro() }
+                else if command == "away" { self.awaySince = Date().addingTimeInterval(-Self.minimumAway - 1) }
+                else if command == "back" { self.cameBack() }
                 else if command == "down" { self.climber.jumpDown() }
                 else if command.hasPrefix("meow:") { self.pet.meow(MeowKind(rawValue: String(command.dropFirst(5))) ?? .meow) }
             }
