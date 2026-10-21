@@ -15,8 +15,8 @@
 // the screen saver to the password prompt is seamless: the clock sits where the lock screen shows its clock (top
 // centre), the core fills the empty middle, and a dock at the bottom centre waits for the user picture and the
 // password field. System details and the task log stay in the lower corners, clear of both.
-// URL parameters: ai, aiLatin, name, os, host, chip, cores, mem, displays, lang, style (a | b | c), log (JSON array
-// of strings from DeskPet), lock=1 (preview only: draws a mock lock screen on top).
+// URL parameters: ai, aiLatin, name, os, host, chip, cores, mem, displays, lang, h12, style (a | b | c), log (JSON array
+// of strings from DeskPet), lock=1 (preview only: draws a mock lock screen on top, as after a wake).
 const Q = new URLSearchParams(location.search);
 const INFO = {
   ai: Q.get('ai') || 'DeskPet',
@@ -31,8 +31,10 @@ const INFO = {
   lang: Q.get('lang') || 'zh',
 };
 const ZH = INFO.lang.startsWith('zh');
+const H12 = Q.get('h12') === '1';  // the clock as the lock screen shows it: 12-hour without AM/PM, or 24-hour
 let STYLE = (Q.get('style') || 'c').toLowerCase();
 let LOCK = Q.has('lock');
+let WOKE = LOCK ? 0 : -1;
 // variant=lock: the still picture behind the lock screen (macOS draws its own clock, user picture and password
 // field on top), without the clock, timers and task log that would go stale.
 const STILL = Q.get('variant') === 'lock';
@@ -45,18 +47,23 @@ const CJK = '"PingFang SC", "Hiragino Sans GB", sans-serif';
 const GOLD = '214,186,130';
 
 const cv = document.getElementById('cv'), x = cv.getContext('2d');
-// Virtual coordinates: 900 units high, the width follows the screen. Zones (fractions of the height) follow the
-// macOS 26 lock screen: date ≈ 0.07, clock ≈ 0.16, user picture ≈ 0.80, name ≈ 0.86, password field ≈ 0.90.
+// Virtual coordinates: 900 units high, the width follows the screen.
 let VW, VH = 900, CX, S, DPR;
-const Z = { date: 66, clock: 150, core: 420, title: 600, sub: 624, avatar: 718, name: 772, field: 808 };
-// The lock screen places the user picture, the name and the Touch ID / password line at fixed distances (in
-// points) from the bottom of the screen, measured on macOS 26: picture centre 158 pt, name 114 pt, password
-// line 87 pt. The dock follows them on any screen height (`pth`: screen height in points, for still renders).
-const LOCK_PT = { avatar: 158, name: 114, field: 87 };
+const Z = { date: 0, clock: 0, core: 420, title: 600, sub: 624, avatar: 0, name: 0, field: 0, hint: 0 };
+// The password prompt that macOS 26 draws over the screen saver keeps fixed distances (in points) from the top and
+// bottom of the screen, measured from a capture on macOS 26.7: date centre 100 pt and clock digits 128–220 pt from
+// the top; from the bottom, the name 209 pt, the user picture (45 pt across) 137.5 pt, the password field
+// (160 × 28 pt) 89 pt and the Touch ID line 59.5 pt. The screen saver puts its own clock, name label and dock there,
+// so that the prompt takes their places (`pth`: screen height in points, for still renders).
+const LOCK_PT = { date: 106, clockBase: 220, clockDigits: 92, name: 209, avatar: 137.5, avatarR: 22.5, field: 89, fieldW: 160, fieldH: 28, hint: 59.5 };
 let PT_H = Number(Q.get('pth')) || 0;
+let U = 1;  // virtual units per point
 function placeDock() {
-  const hpt = PT_H || innerHeight, up = pt => VH - pt * VH / hpt;
-  Z.avatar = up(LOCK_PT.avatar); Z.name = up(LOCK_PT.name); Z.field = up(LOCK_PT.field);
+  const hpt = PT_H || innerHeight;
+  U = VH / hpt;
+  const up = pt => VH - pt * U;
+  Z.date = LOCK_PT.date * U; Z.clock = LOCK_PT.clockBase * U;
+  Z.avatar = up(LOCK_PT.avatar); Z.name = up(LOCK_PT.name); Z.field = up(LOCK_PT.field); Z.hint = up(LOCK_PT.hint);
 }
 function resize() {
   const w = innerWidth, h = innerHeight;
@@ -68,7 +75,7 @@ function resize() {
 addEventListener('resize', resize); resize();
 addEventListener('keydown', e => {  // preview helpers: 1/2/3 switch the core, L toggles the mock lock screen
   if ('123'.includes(e.key)) STYLE = 'abc'['123'.indexOf(e.key)];
-  if (e.key.toLowerCase() === 'l') LOCK = !LOCK;
+  if (e.key.toLowerCase() === 'l') { LOCK = !LOCK; if (LOCK) window.DeskPetSaver.wake(); else WOKE = -1; }
 });
 
 const cl = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
@@ -80,6 +87,12 @@ function spaced(text, cx, y, gap, align = 'center') {
   ch.forEach((c, i) => { x.fillText(c, p, y); p += ws[i] + gap; });
 }
 function gold(a) { return `rgba(${GOLD},${a})`; }
+function fit(text, width) {
+  if (x.measureText(text).width <= width) return text;
+  const ch = [...text];
+  while (ch.length && x.measureText(ch.join('') + '…').width > width) ch.pop();
+  return ch.join('') + '…';
+}
 
 /* ---------- cores ---------- */
 function coreHalo(t, cy) {
@@ -151,7 +164,12 @@ const DEFAULT_TASKS = ZH
   : ['Reminder scheduler: watching', 'Memory bank: sealed', 'Network link: stable', 'Weather watch: armed', 'Sector sweep: no anomalies', 'Awaiting operator'];
 let SOURCE = TASKS.length ? TASKS : DEFAULT_TASKS;
 // The screen saver bundle pushes a fresh task list (from DeskPet's standby.json) every minute.
-window.DeskPetSaver = { setTasks(list) { if (Array.isArray(list) && list.length) SOURCE = list.map(String); } };
+// wake(): the owner moved the mouse or pressed a key, macOS now shows its password prompt on top; the screen saver
+// hands the clock and the name over to it.
+window.DeskPetSaver = {
+  setTasks(list) { if (Array.isArray(list) && list.length) SOURCE = list.map(String); },
+  wake() { if (WOKE < 0) WOKE = (performance.now() - started) / 1000; },
+};
 const log = [];
 let nextLog = 0, cursor = 0;
 function pushLog(t) {
@@ -165,6 +183,8 @@ const started = performance.now();
 const WEEK_ZH = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 function frame(now) {
   const t = (now - started) / 1000;
+  // 1 before the wake, fading to 0 in 0.4 s after it.
+  const pre = WOKE < 0 ? 1 : 1 - cl((t - WOKE) / .4), awake = !STILL && WOKE >= 0;
   if (t >= nextLog) { pushLog(t); nextLog = t + (log.length < 5 ? .5 : 4 + Math.random() * 3); }
   x.setTransform(DPR * S, 0, 0, DPR * S, 0, 0);
   x.fillStyle = '#030305'; x.fillRect(0, 0, VW, VH);
@@ -176,47 +196,52 @@ function frame(now) {
   const ox = Math.sin(t / 97) * 10, oy = Math.cos(t / 131) * 6;
   const d = new Date();
 
-  // Date and clock, where the lock screen shows them.
-  if (!STILL) {
-  x.fillStyle = 'rgba(240,226,196,.75)'; x.font = `500 17px ${SANS}`; x.textAlign = 'center';
+  // Date and clock, where the lock screen shows them (digits as tall as the lock screen's); they give way to the
+  // lock screen's own clock at the wake.
+  if (!STILL && pre > 0) {
+  x.fillStyle = `rgba(240,226,196,${.75 * pre})`; x.font = `500 ${17 * U}px ${SANS}`; x.textAlign = 'center';
   x.fillText(ZH ? `${d.getMonth() + 1}月${d.getDate()}日 ${WEEK_ZH[d.getDay()]}` : d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }), CX, Z.date);
-  x.fillStyle = 'rgba(248,236,210,.94)'; x.font = `200 104px ${SANS}`;
-  x.fillText(`${d.getHours()}:${p2(d.getMinutes())}`, CX, Z.clock);
+  x.fillStyle = `rgba(248,236,210,${.94 * pre})`; x.font = `200 ${LOCK_PT.clockDigits / .72 * U}px ${SANS}`;
+  x.fillText(`${H12 ? d.getHours() % 12 || 12 : d.getHours()}:${p2(d.getMinutes())}`, CX, Z.clock);
   }
 
   // Core.
   x.save(); x.translate(ox, oy);
   if (STYLE === 'b') coreSphere(t, Z.core); else if (STYLE === 'c') coreNeural(t, Z.core); else coreHalo(t, Z.core);
   x.font = `30px ${SERIF}`; x.fillStyle = gold(.92);
-  spaced(`${INFO.aiLatin}  ·  ${STILL ? 'SECURED' : 'STANDBY'}`, CX, Z.title, 12);
+  spaced(`${INFO.aiLatin}  ·  ${STILL ? 'SECURED' : awake ? 'VERIFYING' : 'STANDBY'}`, CX, Z.title, 12);
   x.font = `300 13px ${CJK}`; x.fillStyle = gold(.55);
-  spaced(STILL ? (ZH ? `${INFO.ai}守护中 · 等待身份验证` : `${INFO.ai} on guard · awaiting authentication`)
-               : (ZH ? `${INFO.ai}待命中 · 主控 AI 低功耗运行` : `${INFO.ai} on standby · core AI in low-power mode`), CX, Z.sub, 3);
+  spaced(STILL || awake ? (ZH ? `${INFO.ai}守护中 · 等待身份验证` : `${INFO.ai} on guard · awaiting authentication`)
+                        : (ZH ? `${INFO.ai}待命中 · 主控 AI 低功耗运行` : `${INFO.ai} on standby · core AI in low-power mode`), CX, Z.sub, 3);
   x.restore();
 
-  // The dock: a ring where macOS puts the user picture, and a slot for the password field.
-  if (!LOCK) {
-    const ar = 34, b = .5 + .5 * Math.sin(t * 2 * Math.PI / 4);
+  // The dock: rings around the place of the user picture, and a slot for the password field.
+  {
+    const ar = LOCK_PT.avatarR * U, b = .5 + .5 * Math.sin(t * 2 * Math.PI / 4);
+    if (!LOCK && !awake) {  // a faint disc where the picture will appear
+      x.fillStyle = gold(.05 + .04 * b); x.beginPath(); x.arc(CX, Z.avatar, ar, 0, 7); x.fill();
+    }
     x.strokeStyle = gold(.30 + .25 * b); x.lineWidth = 1;
-    x.beginPath(); x.arc(CX, Z.avatar, ar + 6, 0, 7); x.stroke();
-    x.strokeStyle = gold(.14); x.beginPath(); x.arc(CX, Z.avatar, ar + 14, 0, 7); x.stroke();
+    x.beginPath(); x.arc(CX, Z.avatar, ar + 5, 0, 7); x.stroke();
+    x.strokeStyle = gold(.14); x.beginPath(); x.arc(CX, Z.avatar, ar + 10, 0, 7); x.stroke();  // clear of the password field
     for (let i = 0; i < 4; i++) {  // four short arcs turning around the ring
       const a = t * .4 + i * Math.PI / 2;
       x.strokeStyle = gold(.7); x.lineWidth = 1.4;
-      x.beginPath(); x.arc(CX, Z.avatar, ar + 14, a, a + .35); x.stroke();
+      x.beginPath(); x.arc(CX, Z.avatar, ar + 10, a, a + .35); x.stroke();
     }
-    if (!STILL) {  // under the lock screen, macOS writes the user's name here
-      x.font = `11px ${MONO}`; x.fillStyle = gold(.6);
-      spaced(ZH ? `等待操作员 · ${INFO.name}` : `AWAITING OPERATOR · ${INFO.name.toUpperCase()}`, CX, Z.name + 2, 3);
+    if (!STILL && pre > 0) {  // where macOS writes the user's name; it gives way at the wake
+      x.font = `11px ${MONO}`; x.fillStyle = gold(.6 * pre); x.textBaseline = 'middle';
+      spaced(ZH ? `等待操作员 · ${INFO.name}` : `AWAITING OPERATOR · ${INFO.name.toUpperCase()}`, CX, Z.name, 3);
+      x.textBaseline = 'alphabetic';
     }
   }
   // Hairlines on either side of the password field (kept in both states, the field sits between them).
-  const fw = 120, gap = 26;
+  const fw = LOCK_PT.fieldW / 2 * U, gap = 18;
   [[-1], [1]].forEach(([s]) => {
-    const g = x.createLinearGradient(CX + s * (fw + gap), 0, CX + s * (fw + gap + 220), 0);
+    const g = x.createLinearGradient(CX + s * (fw + gap), 0, CX + s * (fw + gap + 160), 0);
     g.addColorStop(0, gold(.45)); g.addColorStop(1, gold(0));
     x.strokeStyle = g; x.lineWidth = 1;
-    x.beginPath(); x.moveTo(CX + s * (fw + gap), Z.field); x.lineTo(CX + s * (fw + gap + 220), Z.field); x.stroke();
+    x.beginPath(); x.moveTo(CX + s * (fw + gap), Z.field); x.lineTo(CX + s * (fw + gap + 160), Z.field); x.stroke();
   });
 
   x.save(); x.translate(ox * .4, oy * .4);
@@ -244,7 +269,8 @@ function frame(now) {
   log.forEach((e, i) => {
     const fade = cl((t - e.born) / .5) * (.35 + .65 * (i + 1) / log.length), y = baseY - (log.length - 1 - i) * 20;
     x.fillStyle = gold(.45 * fade); x.fillText(e.at, 64, y);
-    x.fillStyle = `rgba(240,226,196,${.85 * fade})`; x.font = `12px ${CJK}`; x.fillText(e.text, 140, y); x.font = `11px ${MONO}`;
+    x.fillStyle = `rgba(240,226,196,${.85 * fade})`; x.font = `12px ${CJK}`;
+    x.fillText(fit(e.text, Math.min(380, CX - fw - gap - 170 - 140)), 140, y); x.font = `11px ${MONO}`;
   });
   }
 
@@ -278,15 +304,17 @@ function frame(now) {
 
 // Preview only: roughly what macOS draws on top when the password is asked for.
 function mockLock() {
-  x.fillStyle = 'rgba(200,200,200,.35)'; x.beginPath(); x.arc(CX, Z.avatar, 34, 0, 7); x.fill();
-  x.fillStyle = 'rgba(255,255,255,.9)'; x.font = `500 26px ${CJK}`; x.textAlign = 'center';
-  x.fillText([...INFO.name][0] || '', CX, Z.avatar + 9);
-  x.font = `500 15px ${CJK}`; x.fillStyle = 'rgba(255,255,255,.92)'; x.fillText(INFO.name, CX, Z.name);
-  const w = 240, h = 30;
-  x.fillStyle = 'rgba(255,255,255,.18)';
+  const ar = LOCK_PT.avatarR * U;
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillStyle = 'rgba(200,200,200,.35)'; x.beginPath(); x.arc(CX, Z.avatar, ar, 0, 7); x.fill();
+  x.fillStyle = 'rgba(255,255,255,.9)'; x.font = `500 ${20 * U}px ${CJK}`; x.fillText([...INFO.name][0] || '', CX, Z.avatar);
+  x.font = `500 ${15 * U}px ${SANS}`; x.fillStyle = 'rgba(255,255,255,.92)'; x.fillText(INFO.name, CX, Z.name);
+  const w = LOCK_PT.fieldW * U, h = LOCK_PT.fieldH * U;
+  x.fillStyle = 'rgba(255,255,255,.28)';
   x.beginPath(); x.roundRect(CX - w / 2, Z.field - h / 2, w, h, h / 2); x.fill();
-  x.font = `13px ${CJK}`; x.fillStyle = 'rgba(255,255,255,.55)'; x.fillText(ZH ? '输入密码' : 'Enter Password', CX, Z.field + 5);
-  x.font = `11px ${CJK}`; x.fillStyle = 'rgba(255,255,255,.5)'; x.fillText(ZH ? '触控 ID 或输入密码' : 'Touch ID or Enter Password', CX, Z.field + 38);
+  x.font = `${13 * U}px ${CJK}`; x.fillStyle = 'rgba(255,255,255,.55)'; x.fillText(ZH ? '输入密码' : 'Enter Password', CX, Z.field);
+  x.font = `600 ${12 * U}px ${CJK}`; x.fillStyle = 'rgba(255,255,255,.6)'; x.fillText(ZH ? '使用触控 ID 或输入密码' : 'Touch ID or Enter Password', CX, Z.hint);
+  x.textBaseline = 'alphabetic';
 }
 
 // Renders one frame at w × h pixels (for the lock screen picture) and returns it as a PNG data URL.

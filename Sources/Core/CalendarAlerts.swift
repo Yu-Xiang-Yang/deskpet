@@ -81,7 +81,9 @@ enum CalendarAlerts {
     /// "15:00 组会（B302）" or "全天 国庆节".
     static func label(_ event: CalendarEvent) -> String {
         let title = event.title.isEmpty ? tr("未命名日程", "Untitled event") : event.title
-        let place = event.location.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
+        // A meeting link is no place to name (and too long for a bubble).
+        let place = event.location.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty || $0.contains("://") || $0.hasPrefix("www.") ? nil : $0 }
         let head = event.allDay ? tr("全天", "All day") : time(event.start)
         return "\(head) \(title)" + (place.map { tr("（\($0)）", " (\($0))") } ?? "")
     }

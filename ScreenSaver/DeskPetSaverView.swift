@@ -8,6 +8,9 @@ import WebKit
 final class DeskPetSaverView: ScreenSaverView {
     private var web: WKWebView?
     private var refresh: Timer?
+    private var wakeWatch: Timer?
+    /// The wake counts once the owner has been idle for a moment (the input that started the screen saver is past).
+    private var armed = false
 
     override init?(frame: NSRect, isPreview: Bool) {
         super.init(frame: frame, isPreview: isPreview)
@@ -53,7 +56,21 @@ final class DeskPetSaverView: ScreenSaverView {
         if !isPreview {
             DistributedNotificationCenter.default().addObserver(self, selector: #selector(willStop),
                                                                 name: Notification.Name("com.apple.screensaver.willstop"), object: nil)
+            // macOS shows its password prompt over the screen saver on the first input; the page then hands its
+            // clock and name over to it. The input is not delivered to the view, so the idle time tells.
+            let watch = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in self?.checkWake() }
+            RunLoop.main.add(watch, forMode: .common)
+            wakeWatch = watch
         }
+    }
+
+    private func checkWake() {
+        let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+        if idle > 1.5 { armed = true; return }
+        guard armed, idle < 0.5 else { return }
+        wakeWatch?.invalidate()
+        wakeWatch = nil
+        web?.evaluateJavaScript("window.DeskPetSaver && window.DeskPetSaver.wake()")
     }
 
     @objc private func willStop() {
@@ -110,6 +127,7 @@ final class DeskPetSaverView: ScreenSaverView {
             "aiLatin": s["aiLatin"] as? String ?? "DESKPET",
             "name": s["name"] as? String ?? (NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()),
             "lang": s["lang"] as? String ?? (Locale.preferredLanguages.first ?? "en"),
+            "h12": (DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current) ?? "").contains("a") ? "1" : "0",
         ]
         if let tasks = s["tasks"] as? [String], let data = try? JSONSerialization.data(withJSONObject: tasks),
            let list = String(data: data, encoding: .utf8) {

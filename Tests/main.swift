@@ -408,6 +408,9 @@ do {
           "No alert later than 5 min after the start")
     check(CalendarAlerts.label(meeting).hasSuffix("组会（B302）") || CalendarAlerts.label(meeting).hasSuffix("组会 (B302)"), "Label with place")
     check(CalendarAlerts.next(events, now: at(21, 12, 0)) == meeting, "Next timed event")
+    var online = meeting
+    online.location = "https://meeting.dingtalk.com/j/abc"
+    check(!CalendarAlerts.label(online).contains("http"), "Meeting links are not shown as places")
     let line = CalendarAlerts.contextLine(events, now: at(21, 12, 0), calendar: cal) ?? ""
     check(line.contains("组会") && line.contains("休假") && !line.contains("早会") && line.contains("明天日程") && line.contains("答辩"),
           "Context line (\(line))")
