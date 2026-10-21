@@ -61,7 +61,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             AppLauncher.open(name) { self?.pet.say($0, kind: "memory") }
         }
         brain.onAddEvent = { [weak self] request in self?.confirmEvent(request) }
-        brain.onAgentTask = { [weak self] task in self?.confirmAgentTask(task) }
+        brain.onAgentTask = { [weak self] task in self?.startAgentTask(task) }
         agent.onStatus = { [weak self] status in self?.pet.setStatus(status) }
         agent.ask = { [weak self] text, done in
             guard let self else { done(false); return }
@@ -247,20 +247,16 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         } }
     }
 
-    /// Every agent task is confirmed first (Return allows); the agent's own approval requests come later.
-    private func confirmAgentTask(_ task: String) {
-        let text = tr("交给执行代理：\(task)\n工作目录：~/Documents/DeskPet", "For the agent: \(task)\nWorkspace: ~/Documents/DeskPet")
-        approval.ask(text, below: pet.panel) { [weak self] yes in
-            guard let self else { return }
-            guard yes else { self.pet.say(tr("好的，这个任务先不做。", "OK, I'll leave that task."), kind: "memory"); return }
-            Task { @MainActor in
-                do {
-                    let report = try await self.agent.run(task)
-                    self.brain.agentFinished(task: task, report: report)
-                } catch {
-                    self.pet.play(.sad)
-                    self.pet.say(error.localizedDescription, kind: "error")
-                }
+    /// An agent task starts at once: dsh's sandbox keeps it to the workspace, and its requests to go beyond it
+    /// come to the approval card.
+    private func startAgentTask(_ task: String) {
+        Task { @MainActor in
+            do {
+                let report = try await self.agent.run(task)
+                self.brain.agentFinished(task: task, report: report)
+            } catch {
+                self.pet.play(.sad)
+                self.pet.say(error.localizedDescription, kind: "error")
             }
         }
     }
