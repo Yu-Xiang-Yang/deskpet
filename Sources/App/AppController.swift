@@ -212,21 +212,18 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             guard self.settings.bootIntro, self.settings.introOnReturn,
                   Date().timeIntervalSince(since) >= Self.minimumAway else { return }
             self.brain.wakeQuietly()
-            self.playIntro(returning: true)
+            self.playIntro()
         }
         returnWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + (unlocked ? 0.05 : 1.0), execute: work)
     }
 
     /// The login intro on every screen; afterwards the pet waves, meows and says hello.
-    @objc private func playIntro() { playIntro(returning: false) }
-    @objc private func playReturnIntro() { playIntro(returning: true) }
-
-    private func playIntro(returning: Bool) {
+    @objc private func playIntro() {
         guard !introPlaying else { return }
         introPlaying = true
         chatPanel.dismiss()
-        bootIntro.play(returning: returning) { [weak self] in
+        bootIntro.play { [weak self] in
             guard let self else { return }
             self.introPlaying = false
             if self.petReady, !self.greeted { self.petDidBecomeReady(mode: "") } else { self.brain.welcomeBack() }
@@ -469,7 +466,6 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
                 else if command == "climb" { self.climber.climbNow() }
                 else if command == "usage" { self.reportClaudeUsage() }
                 else if command == "intro" { self.playIntro() }
-                else if command == "intro-return" { self.playIntro(returning: true) }
                 else if command == "away" { self.awaySince = Date().addingTimeInterval(-Self.minimumAway - 1) }
                 else if command == "back" { self.cameBack() }
                 else if command == "down" { self.climber.jumpDown() }
@@ -647,8 +643,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         menu.addItem(.separator())
         item(reminders.focusRunning ? tr("停止专注计时", "Stop focus timer") : tr("开始专注 25 分钟", "Focus for 25 minutes"), #selector(toggleFocus))
         item(tr("提醒设置…", "Reminders…"), #selector(openReminderSettings))
-        item(tr("播放开机动画", "Play the login intro"), #selector(playIntro as () -> Void))
-        item(tr("播放解锁动画", "Play the unlock intro"), #selector(playReturnIntro))
+        item(tr("播放开机动画", "Play the login intro"), #selector(playIntro))
         item(tr("设置…", "Settings…"), #selector(openSettings), ",")
         menu.addItem(.separator())
         let layer = NSMenuItem(title: tr("显示层级", "Window layer"), action: nil, keyEquivalent: "")

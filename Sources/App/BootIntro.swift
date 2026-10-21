@@ -31,13 +31,12 @@ final class BootIntro: NSObject, WKScriptMessageHandler {
         return Double(tv.tv_sec)
     }
 
-    func play(returning: Bool = false, completion: @escaping () -> Void) {
+    func play(completion: @escaping () -> Void) {
         guard windows.isEmpty else { return }
         playedThisLaunch = true
         self.completion = completion
         var comps = URLComponents(url: AppSchemeHandler.url("web/intro.html"), resolvingAgainstBaseURL: false)!
         comps.queryItems = Self.systemInfo().map { URLQueryItem(name: $0.key, value: $0.value) }
-            + (returning ? [URLQueryItem(name: "mode", value: "return")] : [])
         // DESKPET_INTRO_WINDOWED (tests): a small window in a corner that takes neither focus, keys nor the cursor.
         let windowed = ProcessInfo.processInfo.environment["DESKPET_INTRO_WINDOWED"] != nil
         for screen in windowed ? Array(NSScreen.screens.prefix(1)) : NSScreen.screens {

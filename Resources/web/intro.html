@@ -12,7 +12,7 @@
 <canvas id="cv"></canvas>
 <script>
 // Login intro of DeskPet: a gold progress bar where the password field of the login or lock screen was →
-// white-and-gold sanctum. mode=return: after an unlock (restoring the session) rather than after a system start.
+// white-and-gold sanctum; the same after a system start and after an unlock.
 // The system information comes from the native shell as URL parameters; a browser preview uses neutral defaults.
 const Q = new URLSearchParams(location.search);
 const INFO = {
@@ -33,7 +33,6 @@ const INFO = {
   model: Q.get('model'),
 };
 const LOOP = Q.has('loop');
-const RETURN = Q.get('mode') === 'return';
 const native = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.boot;
 const post = m => { if (native) native.postMessage(m); };
 
@@ -96,7 +95,7 @@ const GOLD = '201,164,92';
 // The password prompt of macOS 26 (measured, in points from the bottom): user picture 137.5 (45 pt across),
 // password field 89 (160 × 28 pt), Touch ID line 59.5. The bar takes the field's place, the ring the picture's.
 const LOCK_PT = { avatar: 137.5, avatarR: 22.5, field: 89, fieldW: 160, fieldH: 28, hint: 59.5, name: 209 };
-const BAR_LOG = ['Operator verified', ...(RETURN ? LOG.slice(3, -2) : LOG.slice(0, -1)), RETURN ? 'Session restored' : 'All systems online'];
+const BAR_LOG = ['Operator verified', ...LOG.slice(0, -1), 'All systems online'];
 function ZH() { return /[一-鿿]/.test(INFO.greeting); }
 // 进度：分三段推进，中间稍作停顿，看起来像真实的加载
 function barProgress(t) {
@@ -170,7 +169,7 @@ function bar(t) {
   spaced(`${step}  ·  ${String(Math.round(p * 100)).padStart(3, ' ')}%`, CX, up(LOCK_PT.hint), 1);
   x.textBaseline = 'alphabetic';
   x.font = `11px ${MONO}`; x.textAlign = 'left'; x.fillStyle = `rgba(${GOLD},.75)`;
-  x.fillText(`${INFO.aiLatin} CORE  //  ${RETURN ? (ZH() ? '恢复会话' : 'RESTORING SESSION') : (ZH() ? '启动核心' : 'BOOTING CORE')}`, 64, 64);
+  x.fillText(`${INFO.aiLatin} CORE  //  ${ZH() ? '启动核心' : 'BOOTING CORE'}`, 64, 64);
   x.restore();
 
   // At 100 %: light spreads from the bar over the screen, into the sanctum.
