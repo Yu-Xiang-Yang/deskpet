@@ -30,6 +30,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private lazy var mischief = Mischief(pet: pet)
     private lazy var climber = Climber(pet: pet)
     private let bootIntro = BootIntro()
+    private let desktopCover = DesktopCover()
     /// While the login intro plays, the pet's greeting waits.
     private var introPlaying = false
     /// Since when the owner has been away (display asleep, screen locked or screen saver running).
@@ -115,6 +116,12 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
 
         installTestHooks()
         observeReturns()
+
+        settings.$desktopCover.removeDuplicates().sink { [weak self] on in self?.desktopCover.setEnabled(on) }.store(in: &subscriptions)
+        settingsWindow.onChooseCoverPicture = { [weak self] in
+            guard let self, DesktopCover.choosePicture() else { return }
+            if self.settings.desktopCover { self.desktopCover.show() }
+        }
 
         // The screen saver: keep an installed copy current, and give it fresh names and tasks every minute.
         SaverInstaller.updateIfInstalled()

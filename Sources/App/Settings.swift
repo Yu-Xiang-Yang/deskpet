@@ -68,6 +68,9 @@ final class AppSettings: ObservableObject {
     @Published var weatherAlerts: Bool { didSet { defaults.set(weatherAlerts, forKey: "weatherAlerts") } }
     /// Name of the research mode as the pet's highest-performance state (e.g. "EVA"); empty: plain "research mode".
     @Published var researchModeName: String { didSet { defaults.set(researchModeName, forKey: "researchModeName") } }
+    /// A picture over the system wallpaper on the desktop, so that the lock screen (which shows the system
+    /// wallpaper) and the desktop can differ.
+    @Published var desktopCover: Bool { didSet { defaults.set(desktopCover, forKey: "desktopCover") } }
     /// The login intro (terminal log → glitch → white-and-gold welcome) once after every system start.
     @Published var bootIntro: Bool { didSet { defaults.set(bootIntro, forKey: "bootIntro") } }
     /// The intro also when the owner returns: after the display slept, the screen was locked or the screen saver ran.
@@ -118,6 +121,7 @@ final class AppSettings: ObservableObject {
             "weatherAlerts": true,
             "claudeUsageAlerts": true,
             "bootIntro": false,
+            "desktopCover": false,
             "introOnReturn": false,
             "followBeat": true,
         ])
@@ -155,6 +159,7 @@ final class AppSettings: ObservableObject {
         weatherAlerts = defaults.bool(forKey: "weatherAlerts")
         claudeUsageAlerts = defaults.bool(forKey: "claudeUsageAlerts")
         bootIntro = defaults.bool(forKey: "bootIntro")
+        desktopCover = defaults.bool(forKey: "desktopCover")
         introOnReturn = defaults.bool(forKey: "introOnReturn")
         researchModeName = defaults.string(forKey: "researchModeName") ?? ""
         followBeat = defaults.bool(forKey: "followBeat")
