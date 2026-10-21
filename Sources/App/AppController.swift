@@ -63,6 +63,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }
         brain.onAddEvent = { [weak self] request in self?.addEvent(request) }
         brain.onAgentTask = { [weak self] task in self?.startAgentTask(task) }
+        brain.onClaudeTask = { [weak self] request in self?.pet.say(ClaudeCodeLauncher.open(request), kind: "memory") }
         agent.onStatus = { [weak self] status in self?.pet.setStatus(status) }
         agent.ask = { [weak self] text, done in
             guard let self else { done(false); return }

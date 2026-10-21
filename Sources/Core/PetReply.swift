@@ -45,6 +45,18 @@ struct EventRequest: Codable, Equatable {
     }
 }
 
+/// Development work the model hands to Claude Code: the task in full and the project folder (nil: the default).
+struct ClaudeTaskRequest: Codable, Equatable {
+    var task: String
+    var dir: String?
+
+    /// The shell command that starts an interactive Claude Code session on the task in `dir`: every part single-quoted.
+    func shellCommand(claude: String, dir: String) -> String {
+        func q(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        return "cd \(q(dir)) && \(q(claude)) \(q(task))"
+    }
+}
+
 /// The structured reply of the pet persona.
 struct PetReply: Codable, Equatable {
     var reply: String
@@ -62,6 +74,8 @@ struct PetReply: Codable, Equatable {
     var addEvent: EventRequest? = nil
     /// A task for the executing agent (files, commands, multi-step work), in the owner's words, or nil.
     var agentTask: String? = nil
+    /// Development work for Claude Code, opened in Terminal for the owner to follow, or nil.
+    var claudeTask: ClaudeTaskRequest? = nil
 
     /// JSON Schema for structured outputs. Every object sets `additionalProperties: false`,
     /// and numerical constraints are omitted because structured outputs do not support them.
@@ -69,7 +83,8 @@ struct PetReply: Codable, Equatable {
         [
             "type": "object",
             "additionalProperties": false,
-            "required": ["reply", "motion", "remind", "weather_city", "remember", "forget", "open_app", "add_event", "agent_task"],
+            "required": ["reply", "motion", "remind", "weather_city", "remember", "forget", "open_app", "add_event", "agent_task",
+                         "claude_task"],
             "properties": [
                 "reply": ["type": "string", "description": "What the pet says, at most about 60 characters."],
                 "motion": ["type": "string", "enum": .array(PetMotion.allCases.map { .string($0.rawValue) })],
@@ -124,6 +139,20 @@ struct PetReply: Codable, Equatable {
                     "anyOf": [["type": "null"], ["type": "string"]],
                     "description": "A task for the executing agent (files, commands, multi-step work on the Mac); null otherwise.",
                 ],
+                "claude_task": [
+                    "anyOf": [
+                        ["type": "null"],
+                        [
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["task", "dir"],
+                            "properties": [
+                                "task": ["type": "string", "description": "The development task for Claude Code, complete."],
+                                "dir": ["anyOf": [["type": "null"], ["type": "string"]], "description": "Project folder; null: the default."],
+                            ],
+                        ],
+                    ],
+                ],
             ],
         ]
     }
@@ -152,9 +181,14 @@ struct PetReply: Codable, Equatable {
                 event = EventRequest(title: title, start: start, end: field("end"), location: field("location"),
                                      allDay: e["all_day"]?.bool ?? false)
             }
+            var claude: ClaudeTaskRequest?
+            if let c = json["claude_task"], let task = c["task"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !task.isEmpty {
+                let dir = c["dir"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines)
+                claude = ClaudeTaskRequest(task: task, dir: dir?.isEmpty == false ? dir : nil)
+            }
             return PetReply(reply: reply, motion: motion, remind: remind, weatherCity: text("weather_city"),
                             remember: text("remember"), forget: text("forget"), openApp: text("open_app"), addEvent: event,
-                            agentTask: text("agent_task"))
+                            agentTask: text("agent_task"), claudeTask: claude)
         }
         return PetReply(reply: text.isEmpty ? "……" : text, motion: .idle, remind: nil)
     }

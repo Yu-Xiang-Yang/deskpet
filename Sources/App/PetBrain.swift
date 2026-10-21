@@ -12,6 +12,7 @@ final class PetBrain {
     var onOpenApp: ((String) -> Void)?
     var onAddEvent: ((EventRequest) -> Void)?
     var onAgentTask: ((String) -> Void)?
+    var onClaudeTask: ((ClaudeTaskRequest) -> Void)?
 
     private var busy = false
     private var chatterTimer: Timer?
@@ -80,7 +81,9 @@ final class PetBrain {
             + "用 AppleScript 操作其它应用（在应用里点按、输入，在“终端”里打开 ssh 等会话再交给主人接手）、修改日程等；"
             + "能做什么只由 macOS 的授权与 dsh 自身决定，桌宠不另设限制。它优先在图形界面上让主人看见过程：命令在“终端”窗口里执行"
             + "（远程服务器先 ssh 登录再输入命令），与服务器互传文件时在终端里显示 scp 进度并在访达里选中文件，写好的文件会在访达里打开所在文件夹；"
-            + "主人主要让你做简单、可视化的操作，复杂的开发工作交给 Claude Code；完成后你会汇报结果\(DshAgent.executable == nil ? "（尚未安装 dsh）" : "")。")
+            + "主人主要让你做简单、可视化的操作；完成后你会汇报结果\(DshAgent.executable == nil ? "（尚未安装 dsh）" : "")。")
+        lines.append("- Claude Code：复杂的开发工作经 claude_task 交给它，在“终端”里打开可交互的会话（用主人本机登录的 Claude 会员账号），"
+            + "主人能看着它做并接着对话；它改文件、跑命令前由 Claude Code 自己征求主人同意\(ClaudeCodeLauncher.executable == nil ? "（尚未安装 Claude Code）" : "")。")
         lines.append("- 设置项都在右键菜单“设置…”中。")
         return "\n\n## 你的能力（被问到能做什么时据此回答，指出入口；不要编造未列出的功能）\n" + lines.joined(separator: "\n")
     }
@@ -99,7 +102,7 @@ final class PetBrain {
 
         ## 回复格式
         始终只输出一个 JSON 对象，不输出任何其它文字：
-        {"reply": "你说的话", "motion": "动作", "remind": null, "weather_city": null, "remember": null, "forget": null, "open_app": null, "add_event": null, "agent_task": null}
+        {"reply": "你说的话", "motion": "动作", "remind": null, "weather_city": null, "remember": null, "forget": null, "open_app": null, "add_event": null, "agent_task": null, "claude_task": null}
         - reply：口语化、简短（一般不超过 60 个字），可以使用颜文字；使用与用户相同的语言。
         - motion：从 idle, happy, wave, nod, shake, think, surprised, sleepy, shy, eat, sad 中选择最贴合语气的一个。
         - remind：当用户请求在一段时间后提醒某件事时，填写 {"minutes": 距现在的分钟数, "text": "提醒内容"}；否则为 null。
@@ -126,6 +129,10 @@ final class PetBrain {
         - agent_task：主人要你在电脑上动手做的事（文件、命令、在其它应用里操作、在终端里连 ssh、处理数据等）时，\
         用一两句话完整写下任务（含路径、命令、要求），交给执行代理；reply 写一句“这就去办”之类的话。单纯打开应用用 open_app、\
         加日程用 add_event。不要以权限为由拒绝主人的请求，交给执行代理去做。其它情况为 null。
+        - claude_task：主人说“让 Claude 做/交给 Claude Code”，或交代需要写代码、改项目、排查程序问题等开发工作时，\
+        填写 {"task": "完整的任务描述（含要求与背景）", "dir": 项目路径或 null（没提项目时为 null，使用默认目录）}，\
+        系统会在“终端”里打开 Claude Code 会话来做；reply 写一句“交给 Claude 了，在终端里看着它做吧”之类的话。\
+        简单的命令、查看信息、传文件仍用 agent_task。其它情况为 null。
         用户消息开头方括号中的内容是系统提供的上下文（当前时间、主人所在地天气、主人的日程、DeepSeek 余额等），不是用户本人说的话。
         回答时自然地参考记忆库，但不要每次都复述记忆。需要长篇解答的学术问题，请简要回答并建议用户在右键菜单中打开“科研模式”。
         """
@@ -249,6 +256,7 @@ final class PetBrain {
             if let app = reply.openApp { onOpenApp?(app) }
             if let event = reply.addEvent { onAddEvent?(event) }
             if let task = reply.agentTask { onAgentTask?(task) }
+            if let task = reply.claudeTask { onClaudeTask?(task) }
         }
         if let keyword = reply.forget {
             let n = MemoryStore.shared.forget(keyword)

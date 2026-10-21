@@ -352,6 +352,12 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+            Section("Claude Code") {
+                TextField(tr("默认项目目录", "Default project folder"), text: $settings.claudeProjectDir)
+                Text(tr("说“让 Claude 来做……”或交代开发类任务时，桌宠在“终端”里打开 Claude Code 会话（使用你本机登录的 Claude 账号），任务作为第一句话发出；没说项目时在这个目录里工作。",
+                        "When you ask for Claude or give development work, the pet opens a Claude Code session in Terminal (with the Claude account signed in on this Mac) and sends the task as its first message; without a named project it works in this folder."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section {
                 HStack {
                     Button(testing ? tr("测试中…", "Testing…") : tr("测试连接", "Test connection")) { test() }
