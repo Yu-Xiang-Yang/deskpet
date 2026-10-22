@@ -627,6 +627,9 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     @objc private func selectLayer(_ sender: NSMenuItem) {
         if let raw = sender.representedObject as? String, let layer = PetLayer(rawValue: raw) { settings.petLayer = layer }
     }
+    @objc private func selectAgentEffort(_ sender: NSMenuItem) {
+        if let value = sender.representedObject as? String { settings.agentEffort = value }
+    }
     @objc private func quit() { NSApp.terminate(nil) }
 
     @objc private func toggleFocus() {
@@ -750,6 +753,17 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }
         layer.submenu = layers
         menu.addItem(layer)
+        let effort = NSMenuItem(title: tr("执行代理推理强度", "Agent reasoning effort"), action: nil, keyEquivalent: "")
+        let efforts = NSMenu()
+        for option in DshAgent.efforts {
+            let i = NSMenuItem(title: option.title, action: #selector(selectAgentEffort(_:)), keyEquivalent: "")
+            i.target = self
+            i.representedObject = option.value
+            i.state = settings.agentEffort == option.value ? .on : .off
+            efforts.addItem(i)
+        }
+        effort.submenu = efforts
+        menu.addItem(effort)
         item(pet.panel.isVisible ? tr("隐藏桌宠", "Hide pet") : tr("显示桌宠", "Show pet"), #selector(togglePet))
         item(tr("退出", "Quit"), #selector(quit), "q")
     }

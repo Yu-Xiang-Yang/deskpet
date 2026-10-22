@@ -12,8 +12,11 @@ import AppKit
 final class DshAgent {
     /// A task that runs longer is cancelled.
     static let taskTimeout: TimeInterval = 15 * 60
-    /// dsh's reasoning effort for the pet's tasks ("off", "low", "high", "max").
-    static let reasoningEffort = "low"
+    /// dsh's reasoning efforts, as its sessions offer them, with their menu titles.
+    static let efforts: [(value: String, title: String)] = [
+        ("off", tr("关闭（最快）", "Off (fastest)")), ("low", tr("低（默认）", "Low (default)")),
+        ("high", tr("高", "High")), ("max", tr("最高（最慢）", "Max (slowest)")),
+    ]
 
     nonisolated static var workspace: URL {
         let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/DeskPet")
@@ -67,15 +70,18 @@ final class DshAgent {
         let session = try await request("session/new", ["cwd": .string(Self.workspace.path), "mcpServers": []])
         guard let sessionID = session["sessionId"]?.string else { throw AgentError(errorDescription: "dsh: no session") }
         // dsh starts at reasoning effort "high", several seconds of thinking per step; the pet's tasks are short and
-        // visible, so a light effort is enough (ignored if the model offers no such option).
+        // visible, so the effort chosen in the context menu applies ("low" by default; ignored if not offered).
         _ = try? await request("session/set_config_option", ["sessionId": .string(sessionID), "configId": "reasoning_effort",
-                                                             "value": .string(Self.reasoningEffort)])
+                                                             "value": .string(AppSettings.shared.agentEffort)])
         onStatus?(tr("执行任务中", "Working on the task"))
         let prompt = """
         以下任务由主人通过桌面宠物交给你。你在主人的 Mac 上拥有完整权限：可以读写任意位置的文件、运行任何命令，\
         也可以用 osascript（AppleScript / JXA）操作其它应用，例如让“终端”打开新窗口执行命令（tell application "Terminal" to do script "…"）\
         或通过 System Events 点按、输入。macOS 第一次会弹出“自动化”或“辅助功能”授权，由主人在系统里决定。\
         默认工作目录是 \(Self.workspace.path)，没有指定位置的新文件放在这里。
+
+        首要要求：用尽可能少的步骤完成任务，每多一步主人就多等几秒。能合并的命令放进同一次 bash 调用（用 && 或多个 -e 连接 osascript），\
+        不要先写脚本文件再执行，不要为确认结果反复检查，一次读取足以汇报时立即结束；简单任务力争一到两步完成。
 
         做事方式：优先在图形界面上让主人看见过程，而不是在后台运行后只告诉结果。
         1. 主人能看到的命令（查看信息、运行程序、连接服务器等）在“终端”里可见地执行：先打开新窗口 \
@@ -91,8 +97,6 @@ final class DshAgent {
         ssh 主机 "ls -lh 远程目录" 显示文件已到达。目标位置已有同名文件时不要覆盖，改用加后缀的新名字并在汇报中说明。\
         判断命令是否结束可查询 osascript -e 'tell application "Terminal" to get busy of selected tab of front window'（false 表示已结束）。
         6. 搜索、读取文件这类主人不需要看的中间步骤可以直接在后台完成。
-        7. 速度优先，用尽量少的步骤完成：能合并的命令放进同一次 bash 调用（用 && 或多个 -e 连接 osascript），\
-        不要先写脚本文件再执行，不要为确认结果反复检查，一次读取足以汇报时就结束。
         完成后用中文简要汇报结果（不超过 150 字），列出新建或修改的文件。
 
         任务：\(task)

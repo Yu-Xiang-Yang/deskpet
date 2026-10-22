@@ -77,6 +77,8 @@ final class AppSettings: ObservableObject {
     @Published var calendarLeadMinutes: Int { didSet { defaults.set(calendarLeadMinutes, forKey: "calendarLeadMinutes") } }
     /// Give today's and tomorrow's events to the model (their titles then reach the model provider).
     @Published var calendarInChat: Bool { didSet { defaults.set(calendarInChat, forKey: "calendarInChat") } }
+    /// dsh's reasoning effort for agent tasks ("off", "low", "high", "max"): less thinking per step, quicker tasks.
+    @Published var agentEffort: String { didSet { defaults.set(agentEffort, forKey: "agentEffort") } }
     /// Where Claude Code works when a task names no project folder.
     @Published var claudeProjectDir: String { didSet { defaults.set(claudeProjectDir, forKey: "claudeProjectDir") } }
     /// In research mode the whale girl (ResearchFigure) replaces the Live2D character, when her picture is installed.
@@ -134,6 +136,7 @@ final class AppSettings: ObservableObject {
             "calendarLeadMinutes": 10,
             "calendarInChat": false,
             "claudeProjectDir": "~",
+            "agentEffort": "low",
             "bootIntro": false,
             "introOnReturn": false,
             "followBeat": true,
@@ -177,6 +180,7 @@ final class AppSettings: ObservableObject {
         calendarLeadMinutes = defaults.integer(forKey: "calendarLeadMinutes")
         calendarInChat = defaults.bool(forKey: "calendarInChat")
         claudeProjectDir = defaults.string(forKey: "claudeProjectDir") ?? "~"
+        agentEffort = defaults.string(forKey: "agentEffort") ?? "low"
         bootIntro = defaults.bool(forKey: "bootIntro")
         introOnReturn = defaults.bool(forKey: "introOnReturn")
         researchModeName = defaults.string(forKey: "researchModeName") ?? ""
