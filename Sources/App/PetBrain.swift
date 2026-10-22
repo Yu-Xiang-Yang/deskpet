@@ -182,7 +182,7 @@ final class PetBrain {
                 let provider = try Providers.current(self.settings)
                 let history = self.history(conversation, provider: provider)
                 var turn = try await provider.send(LLMRequest(
-                    system: self.systemPrompt, messages: history, effort: "low", maxTokens: 4000, jsonSchema: PetReply.schema))
+                    system: self.systemPrompt, messages: history, effort: "low", noThinking: true, maxTokens: 4000, jsonSchema: PetReply.schema))
                 var reply = PetReply.parse(turn.text)
                 if let city = reply.weatherCity {
                     // The pet asked for another place's weather: show its interim line, look it up, ask again.
@@ -197,7 +197,7 @@ final class PetBrain {
                     let followUp = history + [provider.assistantTextMessage(turn.text),
                                               provider.userMessage("[系统提供的天气数据]\n\(report)\n请据此回答主人刚才的问题，weather_city 设为 null。")]
                     turn = try await provider.send(LLMRequest(
-                        system: self.systemPrompt, messages: followUp, effort: "low", maxTokens: 4000, jsonSchema: PetReply.schema))
+                        system: self.systemPrompt, messages: followUp, effort: "low", noThinking: true, maxTokens: 4000, jsonSchema: PetReply.schema))
                     reply = PetReply.parse(turn.text)
                     reply.weatherCity = nil
                 }
@@ -276,7 +276,7 @@ final class PetBrain {
                 let provider = try Providers.current(self.settings)
                 let message = provider.userMessage(await self.context() + "\n（系统指令：\(instruction)）")
                 let turn = try await provider.send(LLMRequest(
-                    system: self.systemPrompt, messages: [message], effort: "low", maxTokens: 2000, jsonSchema: PetReply.schema))
+                    system: self.systemPrompt, messages: [message], effort: "low", noThinking: true, maxTokens: 2000, jsonSchema: PetReply.schema))
                 reply = PetReply.parse(turn.text)
             } catch {
                 reply = nil
