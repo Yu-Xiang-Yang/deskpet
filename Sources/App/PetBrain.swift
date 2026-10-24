@@ -79,10 +79,9 @@ final class PetBrain {
         lines.append("- 添加日程：经 add_event 直接添加到系统日历\(CalendarWatcher.authorized ? "" : "（macOS 会先请求日历权限）")。")
         lines.append("- 执行代理（DeepSeek Harness）：经 agent_task 交给它，拥有这台 Mac 的完整权限——读写任意文件、运行任何命令、"
             + "用 AppleScript 操作其它应用（在应用里点按、输入，在“终端”里打开 ssh 等会话再交给主人接手）、修改日程等；"
-            + "能做什么只由 macOS 的授权与 dsh 自身决定，桌宠不另设限制。它优先在图形界面上让主人看见过程：命令在“终端”窗口里执行"
-            + "（远程服务器先 ssh 登录再输入命令），与服务器互传文件时在终端里显示 scp 进度并在访达里选中文件，写好的文件会在访达里打开所在文件夹；"
-            + "主人主要让你做简单、可视化的操作；完成后你会汇报结果\(DshAgent.executable == nil ? "（尚未安装 dsh）" : "")。")
-        lines.append("- Claude Code：复杂的开发工作经 claude_task 交给它，在“终端”里打开可交互的会话（用主人本机登录的 Claude 会员账号），"
+            + "能做什么只由 macOS 的授权与 dsh 自身决定，桌宠不另设限制。它默认在后台执行（远程服务器用非交互的 ssh、scp），"
+            + "不打开“终端”窗口，下载或写好的文件在访达里选中；只有主人明确要求在终端里做或要亲自接手时才打开终端；完成后你会汇报结果\(DshAgent.executable == nil ? "（尚未安装 dsh）" : "")。")
+        lines.append("- Claude Code：主人明确点名要 Claude（Claude Code）来做时经 claude_task 交给它，在“终端”里打开可交互的会话（用主人本机登录的 Claude 会员账号），"
             + "主人能看着它做并接着对话；它改文件、跑命令前由 Claude Code 自己征求主人同意\(ClaudeCodeLauncher.executable == nil ? "（尚未安装 Claude Code）" : "")。")
         lines.append("- 设置项都在右键菜单“设置…”中。")
         return "\n\n## 你的能力（被问到能做什么时据此回答，指出入口；不要编造未列出的功能）\n" + lines.joined(separator: "\n")
@@ -126,13 +125,14 @@ final class PetBrain {
         - add_event：主人要你添加日程时，填写 {"title": "标题", "start": "yyyy-MM-dd HH:mm", "end": 同格式或 null, \
         "location": 地点或 null, "all_day": 是否全天}（全天日程的 start 写 yyyy-MM-dd）；按上下文中的当前时间换算“明天下午三点”等说法，\
         缺结束时间时 end 为 null（默认一小时）。其它情况为 null。
-        - agent_task：主人要你在电脑上动手做的事（文件、命令、在其它应用里操作、在终端里连 ssh、处理数据等）时，\
-        用一两句话完整写下任务（含路径、命令、要求），交给执行代理；reply 写一句“这就去办”之类的话。单纯打开应用用 open_app、\
+        - agent_task：主人要你在电脑上动手做的事（文件、命令、在其它应用里操作、连服务器、传文件、处理数据等）时，\
+        用一两句话完整写下任务（含路径、命令、要求），交给执行代理；它会在后台完成，不打开终端；只有主人明确要求“在终端里”\
+        “打开终端”“让我看着/接手”时，才在任务里写明要在终端窗口中进行。reply 写一句“这就去办”之类的话。单纯打开应用用 open_app、\
         加日程用 add_event。不要以权限为由拒绝主人的请求，交给执行代理去做。其它情况为 null。
-        - claude_task：主人说“让 Claude 做/交给 Claude Code”，或交代需要写代码、改项目、排查程序问题等开发工作时，\
+        - claude_task：仅当主人明确说“让 Claude 做”“交给 Claude Code”时使用（它会打开“终端”窗口），\
         填写 {"task": "完整的任务描述（含要求与背景）", "dir": 项目路径或 null（没提项目时为 null，使用默认目录）}，\
         系统会在“终端”里打开 Claude Code 会话来做；reply 写一句“交给 Claude 了，在终端里看着它做吧”之类的话。\
-        简单的命令、查看信息、传文件仍用 agent_task。其它情况为 null。
+        没点名 Claude 的事（包括一般的代码、文件、命令、查看信息、传文件）都用 agent_task。其它情况为 null。
         用户消息开头方括号中的内容是系统提供的上下文（当前时间、主人所在地天气、主人的日程、DeepSeek 余额等），不是用户本人说的话。
         回答时自然地参考记忆库，但不要每次都复述记忆。需要长篇解答的学术问题，请简要回答并建议用户在右键菜单中打开“科研模式”。
         """

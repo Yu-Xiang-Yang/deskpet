@@ -76,27 +76,21 @@ final class DshAgent {
         onStatus?(tr("执行任务中", "Working on the task"))
         let prompt = """
         以下任务由主人通过桌面宠物交给你。你在主人的 Mac 上拥有完整权限：可以读写任意位置的文件、运行任何命令，\
-        也可以用 osascript（AppleScript / JXA）操作其它应用，例如让“终端”打开新窗口执行命令（tell application "Terminal" to do script "…"）\
-        或通过 System Events 点按、输入。macOS 第一次会弹出“自动化”或“辅助功能”授权，由主人在系统里决定。\
+        也可以用 osascript（AppleScript / JXA）操作其它应用，例如通过 System Events 点按、输入。macOS 第一次会弹出“自动化”或“辅助功能”授权，由主人在系统里决定。\
         默认工作目录是 \(Self.workspace.path)，没有指定位置的新文件放在这里。
 
         首要要求：用尽可能少的步骤完成任务，每多一步主人就多等几秒。能合并的命令放进同一次 bash 调用（用 && 或多个 -e 连接 osascript），\
         不要先写脚本文件再执行，不要为确认结果反复检查，一次读取足以汇报时立即结束；简单任务力争一到两步完成。
 
-        做事方式：优先在图形界面上让主人看见过程，而不是在后台运行后只告诉结果。
-        1. 主人能看到的命令（查看信息、运行程序、连接服务器等）在“终端”里可见地执行：先打开新窗口 \
-        osascript -e 'tell application "Terminal"' -e 'activate' -e 'do script "命令"' -e 'end tell'，\
-        同一窗口里的后续命令用 osascript -e 'tell application "Terminal" to do script "命令" in front window'。
-        2. 远程服务器：先在终端窗口里 ssh 登录（如 do script "ssh car-data"），等几秒连上后，再在同一窗口里输入要执行的命令\
-        （如 df -h）；不要用 ssh 主机 "命令" 在后台一次性执行。窗口和 ssh 会话保持打开，交给主人继续使用。
-        3. 需要汇报结果时，读取终端窗口的内容：osascript -e 'tell application "Terminal" to get contents of selected tab of front window'。
-        4. 写好或修改文件后，用 open -R "文件路径" 在访达里打开所在文件夹并选中该文件；主人要看内容时再用 open "文件路径" 打开。
-        5. 本地与服务器之间传文件也在“终端”窗口里可见地进行，让主人看到进度：用 scp（目录加 -r），\
-        例如下载 scp -r car-data:/远程路径 ~/Downloads/，上传 scp -r "本地路径" car-data:/远程目录/。没有指定本地位置时下载到 ~/Downloads。\
-        上传前先用 open -R 在访达里选中要上传的本地文件；下载完用 open -R 在访达里选中下载到的文件；上传完在同一终端窗口里运行 \
-        ssh 主机 "ls -lh 远程目录" 显示文件已到达。目标位置已有同名文件时不要覆盖，改用加后缀的新名字并在汇报中说明。\
-        判断命令是否结束可查询 osascript -e 'tell application "Terminal" to get busy of selected tab of front window'（false 表示已结束）。
-        6. 搜索、读取文件这类主人不需要看的中间步骤可以直接在后台完成。
+        做事方式：默认在后台完成，不要打开“终端”窗口，直接用 bash 执行并把结果汇报给主人。
+        1. 本地命令、查看信息、运行程序：在 bash 里直接执行，读取输出后汇报。
+        2. 远程服务器：用非交互方式一次执行，如 ssh -o BatchMode=yes car-data "df -h"，多条命令用 && 连在同一次 ssh 里；\
+        传文件用 scp（目录加 -r），如 scp -r car-data:/远程路径 ~/Downloads/，没有指定本地位置时下载到 ~/Downloads；\
+        目标位置已有同名文件时不要覆盖，改用加后缀的新名字并在汇报中说明。
+        3. 只有任务里主人明确要求“在终端里”“打开终端”“让我看着”“交给我接手”或需要主人亲自交互（输入密码、继续操作会话）时，\
+        才用 osascript -e 'tell application "Terminal"' -e 'activate' -e 'do script "命令"' -e 'end tell' 打开终端窗口，\
+        远程会话此时先 ssh 登录再在同一窗口里输入命令，窗口保持打开交给主人。
+        4. 下载到本地或新写好的文件，完成后用 open -R "文件路径" 在访达里选中，方便主人找到；不要打开其它窗口。
         完成后用中文简要汇报结果（不超过 150 字），列出新建或修改的文件。
 
         任务：\(task)
