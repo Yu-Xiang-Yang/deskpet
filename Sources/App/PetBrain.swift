@@ -13,6 +13,7 @@ final class PetBrain {
     var onAddEvent: ((EventRequest) -> Void)?
     var onAgentTask: ((String) -> Void)?
     var onClaudeTask: ((ClaudeTaskRequest) -> Void)?
+    var onLidAwake: ((Bool) -> Void)?
 
     private var busy = false
     private var chatterTimer: Timer?
@@ -83,6 +84,8 @@ final class PetBrain {
             + "不打开“终端”窗口，下载或写好的文件在访达里选中；只有主人明确要求在终端里做或要亲自接手时才打开终端；完成后你会汇报结果\(DshAgent.executable == nil ? "（尚未安装 dsh）" : "")。")
         lines.append("- Claude Code：主人明确点名要 Claude（Claude Code）来做时经 claude_task 交给它，在“终端”里打开可交互的会话（用主人本机登录的 Claude 会员账号），"
             + "主人能看着它做并接着对话；它改文件、跑命令前由 Claude Code 自己征求主人同意\(ClaudeCodeLauncher.executable == nil ? "（尚未安装 Claude Code）" : "")。")
+        lines.append("- 合盖不休眠：经 lid_awake 让 Mac 合上盖子后继续运行、联网跑代码（true）或恢复合盖休眠（false），"
+            + "macOS 会弹出管理员授权框由主人确认；右键菜单“合盖不休眠”也可切换。当前：\(LidSleep.staysAwake ? "合盖不休眠" : "合盖会休眠")。")
         lines.append("- 设置项都在右键菜单“设置…”中。")
         return "\n\n## 你的能力（被问到能做什么时据此回答，指出入口；不要编造未列出的功能）\n" + lines.joined(separator: "\n")
     }
@@ -133,6 +136,8 @@ final class PetBrain {
         填写 {"task": "完整的任务描述（含要求与背景）", "dir": 项目路径或 null（没提项目时为 null，使用默认目录）}，\
         系统会在“终端”里打开 Claude Code 会话来做；reply 写一句“交给 Claude 了，在终端里看着它做吧”之类的话。\
         没点名 Claude 的事（包括一般的代码、文件、命令、查看信息、传文件）都用 agent_task。其它情况为 null。
+        - lid_awake：主人要求合上盖子也不休眠、合盖继续跑代码时填 true；要求恢复合盖休眠时填 false；其它情况为 null。\
+        系统会弹出 macOS 管理员授权框，reply 写一句“确认一下授权就好”之类的话。
         用户消息开头方括号中的内容是系统提供的上下文（当前时间、主人所在地天气、主人的日程、DeepSeek 余额等），不是用户本人说的话。
         回答时自然地参考记忆库，但不要每次都复述记忆。需要长篇解答的学术问题，请简要回答并建议用户在右键菜单中打开“科研模式”。
         """
@@ -257,6 +262,7 @@ final class PetBrain {
             if let event = reply.addEvent { onAddEvent?(event) }
             if let task = reply.agentTask { onAgentTask?(task) }
             if let task = reply.claudeTask { onClaudeTask?(task) }
+            if let awake = reply.lidAwake { onLidAwake?(awake) }
         }
         if let keyword = reply.forget {
             let n = MemoryStore.shared.forget(keyword)

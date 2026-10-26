@@ -266,6 +266,9 @@ do {
     check(schemaFields.contains("weather_city"), "Schema requires weather_city")
     check(schemaFields.contains("open_app") && schemaFields.contains("add_event") && schemaFields.contains("agent_task"),
           "Schema requires open_app, add_event and agent_task")
+    let lid = PetReply.parse(#"{"reply":"确认一下授权就好","motion":"nod","lid_awake":true}"#)
+    check(lid.lidAwake == true && PetReply.parse(#"{"reply":"好","motion":"nod","lid_awake":null}"#).lidAwake == nil, "PetReply lid_awake")
+    check(schemaFields.contains("lid_awake"), "Schema requires lid_awake")
     let job = PetReply.parse(#"{"reply":"确认后我就去办","motion":"nod","agent_task":"在工作目录新建 todo.md","open_app":null}"#)
     check(job.agentTask == "在工作目录新建 todo.md" && job.openApp == nil, "PetReply agent_task")
     check(schemaFields.contains("claude_task"), "Schema requires claude_task")

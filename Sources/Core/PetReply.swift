@@ -76,6 +76,8 @@ struct PetReply: Codable, Equatable {
     var agentTask: String? = nil
     /// Development work for Claude Code, opened in Terminal for the owner to follow, or nil.
     var claudeTask: ClaudeTaskRequest? = nil
+    /// true: keep the Mac running with the lid closed; false: let it sleep again; nil: no change.
+    var lidAwake: Bool? = nil
 
     /// JSON Schema for structured outputs. Every object sets `additionalProperties: false`,
     /// and numerical constraints are omitted because structured outputs do not support them.
@@ -84,7 +86,7 @@ struct PetReply: Codable, Equatable {
             "type": "object",
             "additionalProperties": false,
             "required": ["reply", "motion", "remind", "weather_city", "remember", "forget", "open_app", "add_event", "agent_task",
-                         "claude_task"],
+                         "claude_task", "lid_awake"],
             "properties": [
                 "reply": ["type": "string", "description": "What the pet says, at most about 60 characters."],
                 "motion": ["type": "string", "enum": .array(PetMotion.allCases.map { .string($0.rawValue) })],
@@ -153,6 +155,10 @@ struct PetReply: Codable, Equatable {
                         ],
                     ],
                 ],
+                "lid_awake": [
+                    "anyOf": [["type": "null"], ["type": "boolean"]],
+                    "description": "true: keep the Mac running with the lid closed; false: let it sleep again; null: no change.",
+                ],
             ],
         ]
     }
@@ -188,7 +194,7 @@ struct PetReply: Codable, Equatable {
             }
             return PetReply(reply: reply, motion: motion, remind: remind, weatherCity: text("weather_city"),
                             remember: text("remember"), forget: text("forget"), openApp: text("open_app"), addEvent: event,
-                            agentTask: text("agent_task"), claudeTask: claude)
+                            agentTask: text("agent_task"), claudeTask: claude, lidAwake: json["lid_awake"]?.bool)
         }
         return PetReply(reply: text.isEmpty ? "……" : text, motion: .idle, remind: nil)
     }

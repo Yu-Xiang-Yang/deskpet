@@ -64,6 +64,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         brain.onAddEvent = { [weak self] request in self?.addEvent(request) }
         brain.onAgentTask = { [weak self] task in self?.startAgentTask(task) }
         brain.onClaudeTask = { [weak self] request in self?.pet.say(ClaudeCodeLauncher.open(request), kind: "memory") }
+        brain.onLidAwake = { [weak self] awake in LidSleep.set(awake: awake) { self?.pet.say($0, kind: "memory") } }
         agent.onStatus = { [weak self] status in self?.pet.setStatus(status) }
         agent.ask = { [weak self] text, done in
             guard let self else { done(false); return }
@@ -632,6 +633,10 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     }
     @objc private func quit() { NSApp.terminate(nil) }
 
+    @objc private func toggleLidAwake() {
+        LidSleep.set(awake: !LidSleep.staysAwake) { [weak self] in self?.pet.say($0, kind: "memory") }
+    }
+
     @objc private func toggleFocus() {
         if reminders.focusRunning {
             reminders.stopFocus()
@@ -738,6 +743,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }
         menu.addItem(.separator())
         item(reminders.focusRunning ? tr("停止专注计时", "Stop focus timer") : tr("开始专注 25 分钟", "Focus for 25 minutes"), #selector(toggleFocus))
+        item(tr("合盖不休眠", "Stay awake with the lid closed"), #selector(toggleLidAwake)).state = LidSleep.staysAwake ? .on : .off
         item(tr("提醒设置…", "Reminders…"), #selector(openReminderSettings))
         item(tr("播放开机动画", "Play the login intro"), #selector(playIntro))
         item(tr("设置…", "Settings…"), #selector(openSettings), ",")
