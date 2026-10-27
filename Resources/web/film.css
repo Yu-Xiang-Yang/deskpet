@@ -1,0 +1,215 @@
+/* The desktop film (film.html): the character in a lit set filling the screen, under film stock. film.js sets the
+   geometry (--char-*, --floor-y, --horizon-y, …), the pointer (--px, --py, -0.5…0.5) and the time of day
+   (.tod-dawn / -day / -dusk / -night), which sets the light. */
+
+:root {
+  --menubar-h: 0px;
+  --horizon-y: 60vh;
+  --stage-w: 450px;
+  --stage-h: 478px;
+  --depth: 1;
+  --char-x: 40vw;
+  --char-w: 400px;
+  --char-h: 425px;
+  --floor-y: 80vh;
+  --sub-bottom: 120px;
+  --sub-size: 24px;
+  --sun-x: 66vw;
+  --sun-y: 24vh;
+  --px: 0;
+  --py: 0;
+  --gold: 214, 176, 98;
+  color-scheme: dark;
+}
+
+/* Palettes: the light (beams, dust, bokeh), the pool of light on the character, the floor. Even at night the sky and
+   the floor stay a little lighter than black up to the screen's edges, so that no edge reads as a black border. */
+.tod-dawn  { --light: 255, 206, 168; --spot: 255, 196, 170; --floor-a: #3b2c3f; --floor-b: #2a2034; --haze: 255, 180, 150; --grain: 0.10; }
+.tod-day   { --light: 255, 242, 214; --spot: 255, 236, 200; --floor-a: #6c6e7c; --floor-b: #3e404c; --haze: 236, 226, 206; --grain: 0.08; }
+.tod-dusk  { --light: 255, 184, 112; --spot: 255, 176, 110; --floor-a: #43283a; --floor-b: #2e1a28; --haze: 255, 150, 96;  --grain: 0.11; }
+.tod-night { --light: 168, 190, 255; --spot: 255, 210, 150; --floor-a: #1a2140; --floor-b: #10162c; --haze: 90, 110, 190;   --grain: 0.14; }
+
+html, body { background: #000; cursor: default; }
+
+/* Everything but the character and the subtitles ignores the pointer, so that hit testing (pet.hitArea) finds them. */
+#set, #set *, #beams, #beams *, #spot, #shadow, #dust, #casts, #casts *, #ripples, #ripples *, #dim, #flicker, #scratches, #scratches *,
+#menubar, #card, #card *, #curtain, #grain { pointer-events: none; }
+
+#frame { position: fixed; inset: 0; overflow: hidden; background: #000; }
+#camera { position: absolute; inset: 0; transform-origin: 0 0; will-change: transform; }
+#bump { position: absolute; inset: 0; transform-origin: var(--char-x) calc(var(--floor-y) - var(--char-h) * 0.55); }
+#bump.kick { animation: kick 0.32s cubic-bezier(.2, .7, .3, 1); }
+@keyframes kick { 0% { transform: scale(1.016); } 100% { transform: none; } }
+#drift { position: absolute; inset: 0; transform-origin: var(--char-x) calc(var(--floor-y) - var(--char-h) * 0.5);
+         animation: drift 52s ease-in-out infinite; }
+@keyframes drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(-9px, 4px) scale(1.012) rotate(0.08deg); }
+  50% { transform: translate(7px, -5px) scale(1.022) rotate(-0.06deg); }
+  75% { transform: translate(-4px, -2px) scale(1.008) rotate(0.04deg); }
+}
+
+/* ---------- The set ---------- */
+
+#set { position: absolute; inset: -40px; transition: transform 1.4s cubic-bezier(.2, .7, .3, 1), filter 1.2s ease;
+       transform: translate(calc(var(--px) * -34px), calc(var(--py) * -16px)); }
+.close-shot #set { filter: blur(5px) brightness(0.92); }
+.sky { position: absolute; inset: 0; opacity: 0; transition: opacity 6s ease; }
+.tod-dawn .sky.dawn, .tod-day .sky.day, .tod-dusk .sky.dusk, .tod-night .sky.night { opacity: 1; }
+.sky.dawn  { background: linear-gradient(180deg, #1b2145 0%, #46396b 34%, #b46b88 60%, #ec9f83 78%, #f6cfa0 100%); }
+.sky.day   { background: linear-gradient(180deg, #3f6fae 0%, #6c98cc 38%, #a9c4df 64%, #e2d9c9 86%, #efe2c8 100%); }
+.sky.dusk  { background: linear-gradient(180deg, #1c1a3c 0%, #4d3462 30%, #a8566a 56%, #e8834f 76%, #ffc47c 100%); }
+.sky.night { background: linear-gradient(180deg, #0c1533 0%, #111c40 42%, #1a2752 72%, #2a3866 100%); }
+
+#stars { position: absolute; left: 0; top: 0; width: 100%; height: 70%; opacity: 0; transition: opacity 6s ease; }
+.tod-night #stars { opacity: 1; animation: twinkle 7s ease-in-out infinite; }
+.tod-dawn #stars { opacity: 0.25; }
+@keyframes twinkle { 0%, 100% { opacity: 0.85; } 50% { opacity: 1; } }
+
+/* The sun, or the moon at night: a large soft glow behind the set. */
+#sun { position: absolute; left: calc(var(--sun-x) + 40px); top: calc(var(--sun-y) + 40px); width: 46vh; height: 46vh;
+       margin: -23vh 0 0 -23vh; border-radius: 50%;
+       background: radial-gradient(circle, rgba(var(--light), 0.85) 0%, rgba(var(--light), 0.35) 9%, rgba(var(--light), 0.12) 30%, transparent 68%);
+       transition: background 6s ease; animation: glow 11s ease-in-out infinite; }
+.tod-night #sun { background: radial-gradient(circle, rgba(236, 240, 255, 0.95) 0%, rgba(236, 240, 255, 0.9) 5.5%, rgba(160, 182, 255, 0.22) 8%, rgba(120, 140, 230, 0.08) 30%, transparent 62%); }
+@keyframes glow { 0%, 100% { transform: scale(1); opacity: 0.92; } 50% { transform: scale(1.05); opacity: 1; } }
+
+/* Haze along the far edge of the floor. */
+#haze { position: absolute; left: 0; right: 0; top: calc(var(--horizon-y) + 40px - var(--stage-h) * 0.55); height: calc(var(--stage-h) * 0.62);
+        background: linear-gradient(180deg, transparent, rgba(var(--haze), 0.22) 62%, rgba(var(--haze), 0.08) 86%, transparent); }
+
+/* Out-of-focus lights in the distance. film.js places the circles; they drift and pulse on the beat. */
+#bokeh { position: absolute; inset: 0; }
+#bokeh b { position: absolute; border-radius: 50%; opacity: var(--o, 0.4);
+           background: radial-gradient(circle, rgba(var(--light), 0.55) 0%, rgba(var(--light), 0.32) 44%, rgba(var(--light), 0.12) 62%, transparent 70%);
+           animation: float var(--d, 40s) ease-in-out var(--delay, 0s) infinite alternate; transition: opacity 0.25s ease; }
+@keyframes float { from { transform: translate(0, 0); } to { transform: translate(var(--dx, 40px), var(--dy, -30px)); } }
+#bokeh.flash b { opacity: calc(var(--o, 0.4) * 1.8); transition: none; }
+
+/* The floor the character stands on, from its far edge down to the bottom of the screen. */
+#floor { position: absolute; left: 0; right: 0; top: calc(var(--horizon-y) + 40px - 2px); bottom: 0;
+         background: linear-gradient(180deg, var(--floor-a), var(--floor-b)); }
+#floor::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+                 background: linear-gradient(90deg, transparent, rgba(var(--light), 0.45) 30%, rgba(var(--light), 0.45) 70%, transparent); filter: blur(1px); }
+
+/* Light coming down from the sun's side, slowly swaying. */
+#beams { position: absolute; inset: 0; mix-blend-mode: screen; opacity: 0.9; transition: opacity 3s ease;
+         transform: translate(calc(var(--px) * -18px), calc(var(--py) * -8px)); }
+#beams i { position: absolute; left: var(--sun-x); top: calc(var(--sun-y) - 30vh); width: 9vw; height: 150vh; transform-origin: 50% 0;
+           background: linear-gradient(180deg, rgba(var(--light), 0) 8%, rgba(var(--light), 0.16) 30%, rgba(var(--light), 0.05) 70%, transparent);
+           filter: blur(14px); animation: sway 24s ease-in-out infinite alternate; }
+/* --dir: 1 with the sun right of the character (light falls down to the left), -1 with the sun on the left. */
+#beams i:nth-child(1) { --r: 32deg; width: 7vw; }
+#beams i:nth-child(2) { --r: 42deg; width: 12vw; animation-duration: 31s; opacity: 0.7; }
+#beams i:nth-child(3) { --r: 51deg; width: 5vw; animation-duration: 19s; }
+#beams i:nth-child(4) { --r: 60deg; width: 10vw; animation-duration: 27s; opacity: 0.5; }
+@keyframes sway { from { transform: rotate(calc(var(--r) * var(--dir, 1))); } to { transform: rotate(calc((var(--r) + 3deg) * var(--dir, 1))); } }
+.tod-night #beams { opacity: 0.45; }
+.mv #beams.flash { opacity: 1.4; transition: none; }
+
+/* A pool of light on the character and its contact shadow. */
+#spot { position: absolute; left: calc(var(--char-x) - var(--char-w) * 1.1); width: calc(var(--char-w) * 2.2);
+        top: calc(var(--floor-y) - var(--char-h) * 1.05); height: calc(var(--char-h) * 1.3);
+        background: radial-gradient(ellipse at 50% 62%, rgba(var(--spot), 0.30) 0%, rgba(var(--spot), 0.12) 38%, transparent 68%);
+        mix-blend-mode: screen; transition: left var(--move-ms, 1.2s) ease-in-out, top var(--move-ms, 1.2s) ease-in-out,
+        width var(--move-ms, 1.2s) ease-in-out, height var(--move-ms, 1.2s) ease-in-out, opacity 0.5s ease; }
+.tod-day #spot { background: radial-gradient(ellipse at 50% 60%, rgba(20, 24, 40, 0.20) 0%, rgba(20, 24, 40, 0.08) 40%, transparent 68%); mix-blend-mode: multiply; }
+#shadow { position: absolute; left: calc(var(--char-x) - var(--char-w) * 0.42); width: calc(var(--char-w) * 0.84);
+          top: calc(var(--floor-y) - var(--char-h) * 0.03); height: calc(var(--char-h) * 0.08);
+          background: radial-gradient(ellipse, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.18) 50%, transparent 72%);
+          transition: left var(--move-ms, 1.2s) ease-in-out, top var(--move-ms, 1.2s) ease-in-out,
+          width var(--move-ms, 1.2s) ease-in-out, height var(--move-ms, 1.2s) ease-in-out, opacity 0.5s ease; }
+
+/* The character: the same stage as in pet.html, large, scaled about its paws to its size in the picture (--depth, 1: full size);
+   reflected faintly in the floor. The stage keeps its size so that the Live2D canvas is not redrawn at each move. */
+.film #stage { left: var(--char-x); bottom: auto; top: calc(var(--floor-y) - var(--stage-h) + var(--feet-gap, 0px)); width: var(--stage-w);
+               height: var(--stage-h); margin-left: calc(var(--stage-w) / -2); transform: translate(calc(var(--px) * 10px), calc(var(--py) * 4px));
+               transform-origin: 50% calc(100% - var(--feet-gap, 0px)); scale: var(--depth);
+               transition: transform 1.4s cubic-bezier(.2, .7, .3, 1), left var(--move-ms, 1.2s) ease-in-out, top var(--move-ms, 1.2s) ease-in-out,
+                           scale var(--move-ms, 1.2s) ease-in-out, opacity 0.5s ease; }
+/* While the film is still, the pet is back in its own window: the picture stays without it. */
+.offstage #stage, .offstage #shadow, .offstage #spot { opacity: 0; }
+.snap #stage, .snap #shadow, .snap #spot { transition: none !important; }
+/* On an icon or behind a widget (film.js visits): the character keeps its place against them, so the handheld sway
+   and the parallax stop, and the floor's reflection goes (it is not on the floor). */
+.visiting #drift { animation: none; }
+.film.visiting #stage { transform: none; }
+.visiting #actor { -webkit-box-reflect: none !important; }
+
+/* Shadows of the widgets and icons on the set, cast away from the sun; at night their glow instead (film.js). */
+#casts { position: absolute; inset: 0; }
+#casts i { position: absolute; border-radius: var(--r); background: rgba(10, 12, 24, 0.3); filter: blur(var(--blur));
+           transform: translate(var(--dx), 14px); }
+.tod-dawn #casts i, .tod-dusk #casts i { background: rgba(24, 8, 18, 0.34); }
+.tod-night #casts { mix-blend-mode: screen; }
+.tod-night #casts i { background: rgba(var(--light), 0.14); transform: none; filter: blur(calc(var(--blur) * 1.8)); }
+.film #actor { -webkit-box-reflect: below 0 linear-gradient(transparent 72%, rgba(255, 255, 255, 0.16)); }
+.film .note { font-size: calc(var(--sub-size) * 1.3); color: rgba(var(--light), 0.95); text-shadow: 0 0 10px rgba(var(--light), 0.6); }
+
+#dust { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* ---------- Film stock ---------- */
+
+#dim { position: absolute; inset: 0; background: #050818; opacity: 0; transition: opacity 4s ease; }
+.sleeping #dim { opacity: 0.38; }
+#flicker { position: absolute; inset: 0; background: #000; opacity: 0; }
+#scratches i { position: absolute; top: 0; width: 1px; background: rgba(255, 250, 235, 0.22); }
+#scratches i.dark { background: rgba(0, 0, 0, 0.35); }
+#scratches s { position: absolute; border-radius: 50%; background: rgba(0, 0, 0, 0.45); text-decoration: none; }
+#grain { position: fixed; inset: 0; z-index: 90; opacity: var(--grain, 0.1); mix-blend-mode: overlay; background-size: 180px 180px; }
+
+#ripples span { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%;
+                border: 1.5px solid rgba(var(--gold), 0.9); box-shadow: 0 0 14px rgba(var(--gold), 0.6), inset 0 0 8px rgba(var(--gold), 0.4);
+                animation: ripple 1.3s cubic-bezier(.2, .7, .3, 1) forwards; }
+#ripples span + span { animation-delay: 0.16s; opacity: 0; }
+@keyframes ripple { 0% { transform: scale(0.4); opacity: 1; } 100% { transform: scale(7); opacity: 0; } }
+
+/* ---------- Menu bar ---------- */
+
+/* Under a menu bar that draws dark text (over a light wallpaper), the strip behind it stays light. */
+#menubar { position: fixed; left: 0; right: 0; top: 0; height: var(--menubar-h); z-index: 61; background: transparent; }
+.menubar-light #menubar { background: linear-gradient(180deg, rgba(236, 231, 222, 0.92), rgba(214, 208, 198, 0.9)); }
+
+/* ---------- Subtitles (pet.js's bubbles) ---------- */
+
+.film #bubbles { position: fixed; z-index: 50; top: auto; left: var(--sub-x); bottom: var(--sub-bottom); width: var(--sub-w); height: auto;
+                 margin-left: calc(var(--sub-w) / -2); max-height: calc(var(--sub-size) * 4.6); flex-direction: column;
+                 justify-content: flex-end; align-items: center; gap: 4px; overflow: visible; }
+.film .bubble { align-self: center; max-width: 100%; padding: 0 6px; background: none; border: 0; box-shadow: none; border-radius: 0;
+                text-align: center; color: #f7f2e6; font-size: var(--sub-size); font-weight: 500; line-height: 1.38; letter-spacing: 0.02em;
+                text-shadow: 0 0 2px rgba(0, 0, 0, 0.95), 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 16px rgba(0, 0, 0, 0.55);
+                -webkit-line-clamp: 2; animation: sub-in 0.35s ease; transform-origin: 50% 100%; }
+.film .bubble::after, .film .bubble.reminder::before { display: none; content: none; }
+.film .bubble.user { margin-right: 0; max-width: 100%; align-self: center; background: none; color: #ead18f; font-size: calc(var(--sub-size) * 0.86);
+                     font-style: italic; -webkit-line-clamp: 2; }
+.film .bubble.user::before { content: "— "; }
+.film .bubble.status { color: rgba(240, 234, 220, 0.72); font-size: calc(var(--sub-size) * 0.78); font-style: italic; }
+.film .bubble.memory { color: rgba(var(--gold), 0.95); font-size: calc(var(--sub-size) * 0.78); }
+.film .bubble.error { color: #ffab9a; font-size: calc(var(--sub-size) * 0.8); }
+.film .bubble.reminder { color: #ffe3a3; }
+.film .bubble[data-depth="1"] { opacity: 0.5; scale: 0.9; }
+.film .bubble[data-depth="2"] { display: none; }
+.film .bubble.leaving { animation: sub-out 0.5s ease forwards; }
+@keyframes sub-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes sub-out { to { opacity: 0; } }
+
+/* ---------- Intertitles, curtain ---------- */
+
+#card { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center;
+        background: #000; opacity: 0; visibility: hidden; transition: opacity 0.6s ease, visibility 0s linear 0.6s; }
+#card.on { opacity: 1; visibility: visible; transition: opacity 0.6s ease; }
+#card .inner { text-align: center; color: #f3ead6; animation: card-flicker 0.12s steps(2) infinite; }
+@keyframes card-flicker { 0% { opacity: 1; } 50% { opacity: 0.94; } }
+/* A reminder as a silent-film intertitle: ornamented frame, centred text. */
+#card .intertitle { position: relative; padding: 5vh 7vw; min-width: 30vw; max-width: 62vw; border: 1px solid rgba(var(--gold), 0.7);
+                    outline: 1px solid rgba(var(--gold), 0.35); outline-offset: 7px;
+                    font: 500 clamp(20px, 3.6vh, 44px)/1.5 "Songti SC", "STSong", serif; color: #f5ecd6; letter-spacing: 0.08em; }
+#card .intertitle::before, #card .intertitle::after { content: "❦"; display: block; font-size: 0.6em; color: rgba(var(--gold), 0.85); }
+#card .intertitle::before { margin-bottom: 1.6vh; }
+#card .intertitle::after { margin-top: 1.6vh; transform: rotate(180deg); }
+
+#curtain { position: fixed; inset: 0; z-index: 65; background: #000; opacity: 0; transition: opacity var(--curtain-ms, 600ms) ease; }
+#curtain.shut { opacity: 1; }
+
+/* Paused (windows cover the desktop): every animation holds its frame. */
+.paused *, .paused *::before, .paused *::after { animation-play-state: paused !important; }

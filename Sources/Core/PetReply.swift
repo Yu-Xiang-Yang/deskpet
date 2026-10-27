@@ -4,6 +4,9 @@ import Foundation
 /// motion groups and expressions through `pet-map.json`.
 enum PetMotion: String, CaseIterable, Codable {
     case idle, happy, wave, nod, shake, think, surprised, sleepy, shy, eat, sad
+    /// Played as keyframed actions (pet.js ACTIONS): pawing at something, sniffing, ears up, a stretch and a yawn,
+    /// licking a paw, the tail swishing.
+    case swipe, sniff, perk, stretch, groom, swish
 }
 
 /// A reminder the model asks to schedule, e.g. "remind me about the meeting in 30 minutes".

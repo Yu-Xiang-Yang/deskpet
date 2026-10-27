@@ -138,6 +138,12 @@ struct SettingsView: View {
                 Text(tr("偶尔装睡、躲到屏幕边偷看、偷偷溜到鼠标旁，摸头太多次会闹脾气；每 8–15 分钟至多一次，打字时不会发生，点一下桌宠即可结束。",
                         "Now and then the pet pretends to sleep, peeks out from a screen edge or sneaks up to the pointer, and sulks when petted too often; at most once every 8–15 minutes, never while you type, and a click ends it."))
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle(tr("和桌面图标互动", "Play with desktop icons"), isOn: $settings.iconPlay)
+                Toggle(tr("允许拨动图标（离开前放回原处）", "May nudge icons (put back before leaving)"), isOn: $settings.iconNudge)
+                    .disabled(!settings.iconPlay)
+                Text(tr("桌面上出现新文件（下载、截图）时，桌宠跳到它的图标上嗅一嗅、拍一拍并说一句；平时每 6–12 分钟也会自己去图标上坐一会儿。只去没被窗口挡住、位于菜单栏下方足够低处的图标；第一次会请求“控制访达”的权限，用于读取图标位置。",
+                        "When a new file appears on the desktop (a download, a screenshot), the pet jumps onto its icon, sniffs it, paws at it and says something; every 6–12 minutes it also goes to sit on an icon on its own. Only icons no window covers and far enough below the menu bar; the first time, macOS asks to let DeskPet control Finder, to read where the icons are."))
+                    .font(.caption).foregroundStyle(.secondary)
                 Toggle(tr("猫叫", "Cat sounds"), isOn: $settings.meow)
                 if settings.meow {
                     HStack {
@@ -152,6 +158,10 @@ struct SettingsView: View {
                 Picker(tr("显示层级", "Window layer"), selection: $settings.petLayer) {
                     ForEach(PetLayer.allCases) { Text($0.title).tag($0) }
                 }
+                Toggle(tr("桌面影院（动态墙纸）", "Desktop film (live wallpaper)"), isOn: $settings.desktopFilm)
+                Text(tr("桌面上没有其它窗口遮挡（覆盖不足 1/5 屏幕）时，桌宠走进墙纸，以全屏电影的方式出演：胶片颗粒、随时段变化的光影、镜头推拉与剪辑，说的话以字幕呈现；它会站在小组件和窗口遮不到的地方，不时跳上桌面图标、躲到小组件后面探头，并说说上面显示的内容。指针移动时它会看过来；点头部是摸头，点身体在字幕处打开聊天框，点空白桌面它会望向那里。窗口回到桌面上时画面定格为墙纸，桌宠回到原处。",
+                        "When no other windows cover the desktop (less than a fifth of the screen), the pet steps into the wallpaper and plays in a full-screen film: film grain, light that follows the time of day, camera moves and cuts, its words as subtitles; it stands where no widget or window hides it, and now and then jumps onto a desktop icon or peeks out from behind a widget and remarks on what it shows. It looks at the pointer; a click on its head pets it, on its body opens the chat box where the subtitles are, on the empty desktop makes it look there. When windows cover the desktop again, the picture freezes as the wallpaper and the pet returns."))
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section(tr("Claude Code（开发任务）", "Claude Code (development work)")) {
                 TextField(tr("默认项目目录", "Default project folder"), text: $settings.claudeProjectDir)

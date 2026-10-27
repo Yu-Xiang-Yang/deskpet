@@ -489,5 +489,59 @@ do {
     check(items.first?.summary == "摘要 内容", "RSS summary without markup (\(items.first?.summary ?? ""))")
 }
 
+// MARK: Desktop film: desktop in view
+
+do {
+    let screen = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+    check(DesktopView.coverage(of: screen, by: []) == 0, "No windows, nothing covered")
+    check(DesktopView.coverage(of: screen, by: [screen]) == 1, "A full-screen window covers everything")
+    let half = DesktopView.coverage(of: screen, by: [CGRect(x: 0, y: 0, width: 800, height: 1000)])
+    check(abs(half - 0.5) < 0.001, "Half the screen covered (\(half))")
+    let overlap = DesktopView.coverage(of: screen, by: [CGRect(x: 0, y: 0, width: 800, height: 1000), CGRect(x: 400, y: 0, width: 400, height: 1000)])
+    check(abs(overlap - 0.5) < 0.001, "Overlapping windows count once (\(overlap))")
+    let other = DesktopView.coverage(of: screen, by: [CGRect(x: 1600, y: 0, width: 1600, height: 1000)])
+    check(other == 0, "A window on another screen does not count")
+
+    var t = DesktopViewTracker(samples: 2)
+    check(!t.update(coverage: 0.05), "One reading does not start the film")
+    check(t.update(coverage: 0.05), "Two readings in a row start it")
+    check(t.update(coverage: 0.25), "Between the thresholds the state is kept")
+    check(t.update(coverage: 0.8) && !t.update(coverage: 0.8), "Covering needs two readings as well")
+    _ = t.update(coverage: 0); _ = t.update(coverage: 0)
+    check(t.inView && !t.update(coverage: 0, allowed: false), "Not allowed: off at once")
+    check(!t.update(coverage: 0.05) && t.update(coverage: 0.05), "Allowed again: two readings")
+    var u = DesktopViewTracker(samples: 2)
+    _ = u.update(coverage: 0.05); _ = u.update(coverage: 0.9)
+    check(!u.update(coverage: 0.05), "An interrupted streak starts over")
+}
+
+// MARK: Desktop icons
+
+do {
+    let parsed = DesktopItems.parse("48\n1410\t75\t报告 v2.pdf\n1410\t175\t截屏2026-10-27 19.02.11.png\nbroken line\n1310\t75\t\tTabbed")
+    check(parsed.iconSize == 48 && parsed.items.count == 3, "Finder output: size and items (\(parsed.items.count))")
+    check(parsed.items[0] == DesktopItems.Item(name: "报告 v2.pdf", center: CGPoint(x: 1410, y: 75)), "Finder output: names with spaces")
+    check(parsed.items[2].name == "\tTabbed", "Finder output: a tab inside a name is kept")
+    check(DesktopItems.parse("").iconSize == 64 && DesktopItems.parse("x\n").items.isEmpty, "Finder output: defaults")
+    check(DesktopItems.parse("64\n-1\t-1\tPPT汇总\n-1\t20\tLeft").items.map(\.name) == ["Left"], "Finder output: items without a place")
+    let frame = DesktopItems.pictureFrame(of: parsed.items[0], iconSize: 48, mainScreenHeight: 956)
+    check(frame == CGRect(x: 1386, y: 857, width: 48, height: 48), "Picture frame in screen coordinates (\(frame))")
+    let fresh = DesktopItems.newcomers(before: ["报告 v2.pdf"], now: parsed.items)
+    check(fresh.map(\.name) == ["截屏2026-10-27 19.02.11.png", "\tTabbed"], "Newcomers keep Finder's order")
+    check(DesktopItems.kind(of: "截屏2026-10-27 19.02.11.png") == .screenshot && DesktopItems.kind(of: "Screenshot 2026.png") == .screenshot,
+          "Screenshots by name")
+    check(DesktopItems.kind(of: "a.PDF") == .pdf && DesktopItems.kind(of: "Setup.dmg") == .installer && DesktopItems.kind(of: "照片") == .folder,
+          "Kinds by extension")
+    check(DesktopItems.quoted("一个名字特别特别特别特别长的文件夹名称.pdf").count <= 20, "Long names are shortened")
+    check(DesktopItems.remark(onArrival: "a.pdf").contains("PDF") || DesktopItems.remark(onArrival: "a.pdf").contains("a.pdf"),
+          "Arrival remark names the kind")
+    check(DesktopItems.widgetKind(owner: "Claude 用量", name: "") == .claude && DesktopItems.widgetKind(owner: "GitHub 热力图", name: "") == .github
+          && DesktopItems.widgetKind(owner: "通知中心", name: "每日天气预报") == .weather && DesktopItems.widgetKind(owner: "通知中心", name: "仓位列表") == .stocks
+          && DesktopItems.widgetKind(owner: "通知中心", name: "") == .other, "Widget kinds by owner and title")
+    let usage = DesktopItems.remark(widgetOwner: "Claude 用量", name: "", claudePercent: 87)
+    check(usage.contains("87"), "Claude widget remark tells the usage (\(usage))")
+    check(!DesktopItems.remark(widgetOwner: "通知中心", name: "").contains("通知中心"), "No owner name for the system's own widgets")
+}
+
 print(failures == 0 ? "All \(checks) checks passed." : "\(failures) of \(checks) checks failed.")
 exit(failures == 0 ? 0 : 1)

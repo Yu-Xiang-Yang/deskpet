@@ -240,30 +240,44 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
         if ready { action() } else { pending.append(action) }
     }
 
+    /// While the desktop film plays (DesktopFilm), the character appears there instead of in this window: words,
+    /// motions and sounds go to the film only; states (status, sleep, music, research) go to both pages, so that
+    /// this one is current when the pet steps back out.
+    var standIn: ((String, [JSON]) -> Void)? {
+        didSet { if let standIn { states.forEach { standIn($0.key, $0.value) } } }  // the film starts out current
+    }
+    /// The last call of each state function.
+    private var states: [String: [JSON]] = [:]
+
+    private func send(_ fn: String, _ args: [JSON], alsoHere: Bool = false) {
+        if alsoHere { states[fn] = args }
+        if let standIn {
+            standIn(fn, args)
+            guard alsoHere else { return }
+        }
+        whenReady { [weak self] in self?.webView.call(fn, arguments: args) }
+    }
+
     /// Adds a bubble to the stack above the pet; `fromUser` shows the user's own words.
     func say(_ text: String, kind: String = "", ms: Int? = nil, fromUser: Bool = false) {
-        whenReady { [weak self] in
-            var opts: [String: JSON] = ["kind": .string(kind), "from": fromUser ? "user" : "pet"]
-            if let ms { opts["ms"] = .number(Double(ms)) }
-            self?.webView.call("pet.say", .string(text), .object(opts))
-        }
+        var opts: [String: JSON] = ["kind": .string(kind), "from": fromUser ? "user" : "pet"]
+        if let ms { opts["ms"] = .number(Double(ms)) }
+        send("pet.say", [.string(text), .object(opts)])
     }
 
     func play(_ motion: PetMotion) {
-        whenReady { [weak self] in self?.webView.call("pet.play", .string(motion.rawValue)) }
+        send("pet.play", [.string(motion.rawValue)])
     }
 
     /// A cat sound (only for characters with "voice": "cat" in their pet-map.json); `chance` 0…1.
     func meow(_ kind: MeowKind, chance: Double = 1) {
         let settings = AppSettings.shared
         guard settings.meow, settings.meowVolume > 0, Double.random(in: 0..<1) < chance else { return }
-        whenReady { [weak self] in
-            self?.webView.call("pet.meow", .string(kind.rawValue), .number(settings.meowVolume))
-        }
+        send("pet.meow", [.string(kind.rawValue), .number(settings.meowVolume)])
     }
 
     func setStatus(_ text: String?) {
-        whenReady { [weak self] in self?.webView.call("pet.setStatus", text.map(JSON.string) ?? .null) }
+        send("pet.setStatus", [text.map(JSON.string) ?? .null], alsoHere: true)
     }
 
     /// The research-mode figure (nil: keep the Live2D character in research mode).
@@ -272,7 +286,7 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
     }
 
     func setResearch(_ on: Bool) {
-        whenReady { [weak self] in self?.webView.call("pet.setResearch", .bool(on)) }
+        send("pet.setResearch", [.bool(on)], alsoHere: true)
     }
 
     func beginAnswer(_ id: UUID) {
@@ -294,16 +308,17 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
     }
 
     func setGrooving(_ on: Bool) {
-        whenReady { [weak self] in self?.webView.call("pet.setGrooving", .bool(on)) }
+        send("pet.setGrooving", [.bool(on)], alsoHere: true)
     }
 
     func beat(_ strength: Double) {
+        if let standIn { standIn("pet.beat", [.number(strength)]); return }
         guard ready else { return }
         webView.call("pet.beat", .number(strength))
     }
 
     func setSleeping(_ on: Bool) {
-        whenReady { [weak self] in self?.webView.call("pet.setSleeping", .bool(on)) }
+        send("pet.setSleeping", [.bool(on)], alsoHere: true)
     }
 
     // MARK: WKScriptMessageHandler
@@ -337,9 +352,18 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
     // MARK: WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        var config: [String: JSON] = ["scale": .number(Double(scale)), "below": .bool(flipped),
-                                      "layout": [.number(Double(bubbles.width)), .number(Double(bubbles.height))],
-                                      "strings": ["more": .string(tr("点击查看完整内容 · 可滚动", "Click for the full answer · scrollable"))]]
+        var config = Self.characterConfig(model)
+        config["scale"] = .number(Double(scale))
+        config["below"] = .bool(flipped)
+        config["layout"] = [.number(Double(bubbles.width)), .number(Double(bubbles.height))]
+        config["strings"] = ["more": .string(tr("点击查看完整内容 · 可滚动", "Click for the full answer · scrollable"))]
+        if let figure = ResearchFigure.url { config["researchFigure"] = .string(figure.absoluteString) }
+        webView.call("pet.init", .object(config))
+    }
+
+    /// The character part of `pet.init`'s configuration (also used by the desktop film).
+    static func characterConfig(_ model: PetModel?) -> [String: JSON] {
+        var config: [String: JSON] = [:]
         if let model, model.sprite {
             config["sprite"] = .string(model.modelURL.absoluteString)
             if let map = model.map { config["map"] = map }
@@ -349,8 +373,7 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
             config["model"] = .string(model.modelURL.absoluteString)
             if let map = model.map { config["map"] = map }
         }
-        if let figure = ResearchFigure.url { config["researchFigure"] = .string(figure.absoluteString) }
-        webView.call("pet.init", .object(config))
+        return config
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

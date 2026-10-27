@@ -83,6 +83,10 @@ final class WeakScriptHandler: NSObject, WKScriptMessageHandler {
 extension WKWebView {
     /// Calls `fn(args…)` with JSON-encoded arguments.
     func call(_ fn: String, _ args: JSON...) {
+        call(fn, arguments: args)
+    }
+
+    func call(_ fn: String, arguments args: [JSON]) {
         let list = args.map { $0.compactString }.joined(separator: ",")
         evaluateJavaScript("\(fn)(\(list))", completionHandler: nil)
     }

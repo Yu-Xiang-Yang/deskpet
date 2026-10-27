@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh" class="film tod-day">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeskPet Film</title>
+<link rel="stylesheet" href="pet.css">
+<link rel="stylesheet" href="film.css">
+</head>
+<body>
+<!-- The picture, filling the screen: a set lit by the time of day, the character on it, and the film stock over everything.
+     #camera moves and cuts between shots, #bump kicks on strong beats, #drift is the slow handheld sway. -->
+<div id="frame">
+  <div id="camera"><div id="bump"><div id="drift">
+    <div id="set">
+      <div class="sky dawn"></div><div class="sky day"></div><div class="sky dusk"></div><div class="sky night"></div>
+      <canvas id="stars"></canvas>
+      <div id="sun"></div>
+      <div id="haze"></div>
+      <div id="bokeh"></div>
+      <div id="floor"></div>
+    </div>
+    <div id="beams"><i></i><i></i><i></i><i></i></div>
+    <div id="spot"></div>
+    <div id="shadow"></div>
+    <div id="stage">
+      <div id="actor">
+        <canvas id="live2d"></canvas>
+        <img id="figure" alt="" draggable="false">
+      </div>
+    </div>
+    <canvas id="dust"></canvas>
+  </div></div></div>
+  <div id="casts"></div>
+  <div id="ripples"></div>
+  <div id="dim"></div>
+  <div id="flicker"></div>
+  <div id="scratches"></div>
+</div>
+
+<div id="menubar"></div>
+<div id="bubbles"></div>
+<div id="card"><div class="inner"></div></div>
+<div id="curtain"></div>
+<div id="grain"></div>
+
+<script src="meow.js"></script>
+<script src="pet.js"></script>
+<script src="film.js"></script>
+</body>
+</html>

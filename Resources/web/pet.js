@@ -15,9 +15,14 @@
   const actor = document.getElementById("actor");
   const bubbles = document.getElementById("bubbles");
   const figure = document.getElementById("figure");
+  // The desktop film (film.html) shows the same character full-screen below the desktop icons: no click-through
+  // mask or feet measurement there (its window takes no clicks), and film.js runs the standalone preview.
+  const filmMode = root.classList.contains("film");
+  let paused = false;
 
   // Semantic motions and how long the one-shot ones last (ms); sleepy and think stay until replaced.
-  const MOTIONS = ["idle", "happy", "wave", "nod", "shake", "think", "surprised", "sleepy", "shy", "eat", "sad"];
+  const MOTIONS = ["idle", "happy", "wave", "nod", "shake", "think", "surprised", "sleepy", "shy", "eat", "sad",
+                   "swipe", "sniff", "perk", "stretch", "groom", "swish"];
   const MOTION_MS = { happy: 1800, wave: 2200, nod: 1100, shake: 1100, surprised: 1500, shy: 2600, eat: 4200, sad: 3200 };
 
   let mode = "none"; // "live2d" once a model is shown
@@ -40,6 +45,124 @@
   let figureAlpha = null;  // { w, h, data } of the shown picture, for hit testing
   const alphaCache = new Map();
   let lean = 0, leanTarget = 0;
+
+  // ---------------------------------------------------------------- actions
+  // Actions the models' own motion files lack (pawing at something, sniffing, stretching, …), played as keyframed
+  // parameter tracks over whatever motion runs and faded in and out at their ends. A track names its parameter by
+  // the ids it may have (Cubism 2 and Cubism 3 names; parameters a model lacks are left alone) and gives keys
+  // [seconds, value], eased in between. An action that moves the forelegs shows the cats' movable foreleg parts
+  // (PARTS_01_ARM_*_02, which their own motions switch to; a pose group keeps one of each pair visible). Pictures
+  // act the actions with a picture of their own and a tween (figureFrame).
+
+  const P = {
+    angleX: ["PARAM_ANGLE_X", "ParamAngleX"], angleY: ["PARAM_ANGLE_Y", "ParamAngleY"], angleZ: ["PARAM_ANGLE_Z", "ParamAngleZ"],
+    bodyX: ["PARAM_BODY_ANGLE_X", "ParamBodyAngleX"], bodyY: ["PARAM_BODY_ANGLE_Y", "ParamBodyAngleY"],
+    eyeL: ["PARAM_EYE_L_OPEN", "ParamEyeLOpen"], eyeR: ["PARAM_EYE_R_OPEN", "ParamEyeROpen"],
+    ballX: ["PARAM_EYE_BALL_X", "ParamEyeBallX"], ballY: ["PARAM_EYE_BALL_Y", "ParamEyeBallY"],
+    mouth: ["PARAM_MOUTH_OPEN_Y", "ParamMouthOpenY"], tongue: ["PARAM_TONGUE"],
+    earL: ["PARAM_EAR_L"], earR: ["PARAM_EAR_R"], tail: ["PARAM_TAIL"], tailAngry: ["PARAM_TAIL_ANGRY"],
+    pawR: ["PARAM_ARM_R_MOVE"], pawL: ["PARAM_ARM_L"], whiskerL: ["PARAM_MUSTACHE_FRONT_L"], whiskerR: ["PARAM_MUSTACHE_FRONT_R"],
+  };
+  /** Keys that hold `v` from t0 to t1, reached from and returning to `rest` over `ramp` seconds. */
+  const hold = (t0, t1, v, rest = 0, ramp = 0.25) => [[t0, rest], [t0 + ramp, v], [t1 - ramp, v], [t1, rest]];
+  /** Keys alternating between a and b every `step` seconds from t0 to t1, then back to `rest`. */
+  const alternate = (t0, t1, step, a, b, rest = 0) => {
+    const keys = [[t0 - step, rest]];
+    for (let t = t0, i = 0; t < t1; t += step, i++) keys.push([t, i % 2 ? b : a]);
+    keys.push([t1 + step, rest]);
+    return keys;
+  };
+
+  const FORELEGS = { show: ["PARTS_01_ARM_R_02", "PARTS_01_ARM_L_02"], hide: ["PARTS_01_ARM_R", "PARTS_01_ARM_L"] };
+  const ACTIONS = {
+    // Eyes on something below, ears forward, a little crouch; the right forepaw up and down on it twice.
+    swipe: { s: 1.9, parts: FORELEGS, tracks: [
+      [P.angleY, hold(0, 1.9, -12)], [P.ballY, hold(0, 1.9, -0.7)], [P.bodyY, hold(0, 1.9, -12)],
+      [P.earL, hold(0, 1.9, 0.8)], [P.earR, hold(0, 1.9, 0.8)], [P.tail, hold(0, 1.9, 0.6, 0, 0.4)],
+      [P.pawR, [[0, 0], [0.35, -2.4], [0.55, -0.4], [0.85, -2.3], [1.05, -0.3], [1.5, -0.3], [1.85, 0]]],
+    ] },
+    // Nose down and forward, nodding in small quick dips from side to side, whiskers twitching.
+    sniff: { s: 2.4, tracks: [
+      [P.angleY, alternate(0.3, 2.0, 0.15, -11, -6)], [P.angleX, [[0, 0], [0.4, -8], [1.3, 8], [2.1, 0]]],
+      [P.whiskerL, alternate(0.3, 2.0, 0.15, -1, 1)], [P.whiskerR, alternate(0.3, 2.0, 0.15, 1, -1)],
+      [P.eyeL, hold(0, 2.4, 0.75, 1)], [P.eyeR, hold(0, 2.4, 0.75, 1)], [P.ballY, hold(0, 2.4, -0.6)],
+      [P.earL, hold(0, 2.4, 0.6)], [P.earR, hold(0, 2.4, 0.6)],
+    ] },
+    // Alert: ears up at once, head up and turned, eyes wide and aside, tail up.
+    perk: { s: 1.8, tracks: [
+      [P.earL, hold(0, 1.8, 1, 0, 0.12)], [P.earR, hold(0, 1.8, 1, 0, 0.12)],
+      [P.angleY, hold(0, 1.8, 8, 0, 0.15)], [P.angleX, hold(0, 1.8, 12, 0, 0.15)], [P.ballX, hold(0, 1.8, 0.8, 0, 0.15)],
+      [P.bodyY, hold(0, 1.8, 8, 0, 0.15)], [P.eyeL, hold(0, 1.8, 1, 1)], [P.eyeR, hold(0, 1.8, 1, 1)], [P.tail, hold(0, 1.8, 1, 0, 0.2)],
+    ] },
+    // Down onto the forepaws with the tail up, then up again into a long yawn, eyes shut, ears back.
+    stretch: { s: 3.4, parts: FORELEGS, tracks: [
+      [P.bodyY, [[0, 0], [0.5, -25], [1.6, -25], [2.2, 10], [3.0, 10], [3.4, 0]]],
+      [P.angleY, [[0, 0], [0.5, -8], [1.6, -8], [2.2, 14], [3.0, 14], [3.4, 0]]],
+      [P.pawR, hold(0, 2.0, -1)], [P.pawL, hold(0, 2.0, -0.8)], [P.tail, [[0, 0], [0.5, 1], [1.6, 1], [2.2, 0.3], [3.4, 0]]],
+      [P.mouth, [[0, 0], [1.7, 0], [2.2, 1], [2.9, 1], [3.2, 0]]], [P.tongue, [[0, 0], [2.2, 0], [2.5, 0.6], [2.9, 0.6], [3.1, 0]]],
+      [P.eyeL, [[0, 1], [1.6, 1], [2.0, 0], [3.0, 0], [3.3, 1]]], [P.eyeR, [[0, 1], [1.6, 1], [2.0, 0], [3.0, 0], [3.3, 1]]],
+      [P.earL, [[0, 0], [0.5, -0.4], [2.2, -0.8], [3.0, -0.8], [3.4, 0]]], [P.earR, [[0, 0], [0.5, -0.4], [2.2, -0.8], [3.0, -0.8], [3.4, 0]]],
+    ] },
+    // The left forepaw up to the mouth, licked a few times with the eyes shut and the head tilted, then put down.
+    groom: { s: 3.2, parts: FORELEGS, tracks: [
+      [P.pawL, hold(0, 3.0, -2, 0, 0.4)], [P.tongue, alternate(0.6, 2.4, 0.3, 1, 0.1)], [P.mouth, alternate(0.6, 2.4, 0.3, 0.35, 0.1)],
+      [P.eyeL, hold(0, 2.9, 0, 1, 0.3)], [P.eyeR, hold(0, 2.9, 0, 1, 0.3)],
+      [P.angleZ, [[0, 0], [0.4, 10], [1.6, 14], [2.6, 8], [3.0, 0]]], [P.angleY, hold(0, 3.0, -8, 0, 0.4)],
+      [P.earL, hold(0, 3.0, -0.3)], [P.earR, hold(0, 3.0, -0.3)],
+    ] },
+    // Mildly put out: the tail swishes, the ears turn back, the eyes narrow and look away.
+    swish: { s: 2.2, tracks: [
+      [P.tail, alternate(0.15, 2.0, 0.18, 0.9, 0.1)], [P.tailAngry, hold(0, 2.2, 1)],
+      [P.earL, hold(0, 2.2, -0.5)], [P.earR, hold(0, 2.2, -0.5)], [P.eyeL, hold(0, 2.2, 0.6, 1)], [P.eyeR, hold(0, 2.2, 0.6, 1)],
+      [P.angleX, hold(0, 2.2, -12)], [P.ballX, hold(0, 2.2, -0.8)],
+    ] },
+  };
+  for (const [name, a] of Object.entries(ACTIONS)) MOTION_MS[name] = Math.round(a.s * 1000);
+  // A sprite character without pictures of its own for an action shows these (its states, see character.json).
+  const ACTION_PICTURES = { swipe: "cheer", sniff: "think", perk: "surprised", stretch: "happy", groom: "shy", swish: "pout" };
+
+  let action = null;  // { tracks, parts, s, t0, end }: the action playing on the Live2D model
+
+  /** Value of a track `e` seconds in, eased between its keys. */
+  function trackValue(keys, e) {
+    if (e <= keys[0][0]) return keys[0][1];
+    for (let i = 1; i < keys.length; i++) {
+      const [t1, v1] = keys[i], [t0, v0] = keys[i - 1];
+      if (e <= t1) {
+        const u = (e - t0) / Math.max(1e-6, t1 - t0);
+        return v0 + (v1 - v0) * u * u * (3 - 2 * u);
+      }
+    }
+    return keys[keys.length - 1][1];
+  }
+
+  /** Sets the action's parameters (called before each model update), faded over 0.25 s at both ends. */
+  function applyAction(cm, ids, parts) {
+    const now = performance.now(), e = (now - action.t0) / 1000;
+    const end = Math.min(action.s, action.end != null ? (action.end - action.t0) / 1000 : Infinity);
+    if (e >= end) { action = null; return; }
+    if (action.parts) {
+      action.parts.show.forEach((id) => parts.has(id) && cm.setPartOpacityById(id, 1));
+      action.parts.hide.forEach((id) => parts.has(id) && cm.setPartOpacityById(id, 0));
+    }
+    const w = Math.max(0, Math.min(1, e / 0.25, (end - e) / 0.25));
+    for (const [names, keys] of action.tracks) {
+      const id = names.find((n) => ids.has(n));
+      if (!id) continue;
+      const cur = cm.getParameterValueById(id);
+      cm.setParameterValueById(id, cur + (trackValue(keys, e) - cur) * w);
+    }
+  }
+
+  function startAction(name) {
+    const a = ACTIONS[name];
+    action = { tracks: a.tracks, parts: a.parts, s: a.s, t0: performance.now(), end: null };
+  }
+
+  /** Another motion takes over: the action fades out. */
+  function endAction() {
+    if (action && action.end == null) action.end = Math.min(performance.now() + 250, action.t0 + action.s * 1000);
+  }
 
   // ---------------------------------------------------------------- motions
 
@@ -414,7 +537,7 @@
       native("mask", { cols, rows, cell: CELL, bits });
     }
   }
-  setInterval(computeMask, 200);
+  if (!filmMode) setInterval(computeMask, 200);
 
   // Distance from the bottom of the stage up to the lowest drawn pixel (the paws), so that the native shell
   // can put the feet exactly on a window edge; models leave a transparent margin below the character.
@@ -438,7 +561,7 @@
     const gap = Math.max(0, Math.round(stage.getBoundingClientRect().bottom - (cr.top + (row + 1) * cr.height / h)));
     if (gap !== lastFeet) { lastFeet = gap; native("feet", { gap }); }
   }
-  setInterval(measureFeet, 2000);
+  if (!filmMode) setInterval(measureFeet, 2000);
 
   // ---------------------------------------------------------------- Live2D
 
@@ -505,6 +628,7 @@
     // pixi-live2d-display drives the gaze through the Cubism 3+ parameter names (ParamAngleX, …).
     // Models converted from Cubism 2 use PARAM_ANGLE_X etc., so their gaze is applied here.
     const ids = new Set(model.internalModel.coreModel.getModel().parameters.ids);
+    const partIds = new Set(model.internalModel.coreModel.getModel().parts.ids);
     const legacy = ids.has("PARAM_ANGLE_X") && !ids.has("ParamAngleX");
     const gaze = map.gaze || (legacy ? { PARAM_ANGLE_X: 30, PARAM_ANGLE_Y: 30, PARAM_BODY_ANGLE_X: 8,
                                          PARAM_EYE_BALL_X: 1, PARAM_EYE_BALL_Y: 1 } : null);
@@ -531,6 +655,7 @@
         const cur = cm.getParameterValueById(id);
         cm.setParameterValueById(id, cur + (b.v - cur) * b.w);
       }
+      if (action) applyAction(cm, ids, partIds);
       const g = grooveFrame();
       if (g) {
         const find = (names) => names.find((n) => ids.has(n));
@@ -566,6 +691,13 @@
     const { model, map } = l2d;
     const groups = Object.keys((model.internalModel.motionManager.definitions) || {});
     const entry = (map.motions || {})[motion];
+    // An action without a motion of the model's own (pet-map.json may name one) plays over the idle motion.
+    if (!entry && ACTIONS[motion]) {
+      l2d.motionParams = {};
+      startAction(motion);
+      return;
+    }
+    if (motion !== "idle") endAction();
     let group = entry && entry.group, index = entry && entry.index;
     if (!group) {
       // Without a mapping: idle uses an "Idle" group, everything else a random tap/other group.
@@ -581,17 +713,19 @@
     else if (motion === "idle" && map.defaultExpression) model.expression(map.defaultExpression);
   }
 
-  /** Spontaneous small actions while nothing else happens (grooming, scratching an ear, …). */
+  /** Spontaneous small actions while nothing else happens: the model's own (pet-map.json "idleActions": grooming,
+      scratching an ear, …) and, two times in five, one of the actions above (a stretch, a lick of the paw, …). */
+  const IDLE_ACTIONS = ["stretch", "groom", "swish", "perk", "sniff"];
   let idleActionTimer = null;
   function scheduleIdleAction() {
     clearTimeout(idleActionTimer);
-    const actions = (l2d && l2d.map.idleActions) || [];
-    if (!actions.length) return;
+    if (!l2d) return;
+    const own = l2d.map.idleActions || [];
     const [min, max] = (l2d.map.idleActionSeconds || [18, 45]);
     idleActionTimer = setTimeout(() => {
-      if (l2d && current === "idle" && !sleeping && !talking && !grooving) {
-        const a = actions[Math.floor(Math.random() * actions.length)];
-        l2d.model.motion(a.group, a.index, 2);
+      if (l2d && current === "idle" && !sleeping && !talking && !grooving && !action) {
+        if (!own.length || Math.random() < 0.4) startAction(IDLE_ACTIONS[Math.floor(Math.random() * IDLE_ACTIONS.length)]);
+        else { const a = own[Math.floor(Math.random() * own.length)]; l2d.model.motion(a.group, a.index, 2); }
       }
       scheduleIdleAction();
     }, (min + Math.random() * (max - min)) * 1000);
@@ -648,7 +782,7 @@
 
   /** The picture for a motion: one of its state's pictures, chosen by weight. */
   function pickSprite(motion) {
-    const state = sprite.motions[motion] || motion;
+    const state = sprite.motions[motion] || (sprite.states[motion] ? motion : ACTION_PICTURES[motion] || motion);
     const list = sprite.states[state] || sprite.states.idle || ["idle"];
     const weight = (n) => (sprite.weights[n] == null ? 1 : sprite.weights[n]);
     let r = Math.random() * list.reduce((a, n) => a + weight(n), 0);
@@ -697,7 +831,9 @@
     }
   }
 
+  let figureLoop = true;
   function figureFrame(now) {
+    if (paused) { figureLoop = false; return; }
     requestAnimationFrame(figureFrame);
     showPicture(now);
     if (!figureOn) return;
@@ -719,6 +855,16 @@
       case "shy": rot += 2.5 * Math.sin(TAU * 1.6 * e) * within(2.6); sx -= 0.015 * bump(2.6); break;
       case "eat": dy += 4 * Math.abs(Math.sin(TAU * 2 * e)) * within(4.2); break;
       case "sad": { const k = Math.min(1, e * 2) * within(3.2 + 0.5) ; sy -= 0.03 * k; rot += 1.5 * k; break; }
+      // The actions (see ACTIONS), as far as a picture can act them.
+      case "swipe": { const jab = e < 0.9 ? Math.max(0, Math.sin(Math.PI * (e % 0.5) / 0.4)) * (e % 0.5 < 0.4 ? 1 : 0) : 0;
+                      rot -= 7 * jab; dx -= 5 * jab; dy += 3 * jab; break; }
+      case "sniff": dy += 3 * Math.abs(Math.sin(TAU * 3.3 * e)) * within(2.4); rot += 2 * Math.sin(TAU * 0.6 * e) * within(2.4); break;
+      case "perk": dy -= 12 * bump(0.35); sy += 0.025 * (e < 1.6 ? Math.min(1, e * 6) : 0); break;
+      case "stretch": { const down = e < 1.6 ? Math.min(1, e * 2) : Math.max(0, 1 - (e - 1.6) * 2);
+                        const up = e > 1.6 && e < 3.4 ? Math.sin(Math.PI * (e - 1.6) / 1.8) : 0;
+                        sy += 0.05 * up - 0.05 * down; sx += 0.04 * down; break; }
+      case "groom": rot += 3 * Math.sin(TAU * 1.2 * e) * within(3.2); dy += 2 * Math.abs(Math.sin(TAU * 3.3 * e)) * within(3.2); break;
+      case "swish": rot += 2 * Math.sin(TAU * 2.8 * e) * within(2.2); break;
     }
     const g = grooveFrame();
     if (g) { rot += g.tilt * 0.3; dx += g.body * 1.4; dy -= g.nod * 0.5; sy += 0.01 * g.level * Math.max(0, g.nod / 8); }
@@ -763,6 +909,15 @@
     },
     setResearchFigure,
     setDragging(on) { if (on) play("surprised"); },
+    /** Stops drawing (the desktop film while windows cover it); the last frame stays. */
+    setPaused(on) {
+      paused = !!on;
+      if (l2d) {
+        if (paused) { l2d.app.ticker.stop(); PIXI.Ticker.shared.stop(); }
+        else { PIXI.Ticker.shared.start(); l2d.app.ticker.start(); }
+      }
+      if (!paused && !figureLoop) { figureLoop = true; requestAnimationFrame(figureFrame); }
+    },
     setSleeping(on) {
       sleeping = !!on;
       if (l2d) l2d.stateParams = sleeping ? ((l2d.map.states || {}).sleep || {}) : {};
@@ -811,6 +966,8 @@
       return Object.fromEntries(Object.entries(defs).map(([g, list]) => [g, list.length]));
     },
     playGroup(group, index) { if (l2d) l2d.model.motion(group, index, 3); },
+    /** Holds parameters at values ({ id: value }; {} releases them), for trying out poses. */
+    holdParams(p) { if (l2d) l2d.stateParams = p || {}; },
     paramValue(id) { return l2d ? l2d.model.internalModel.coreModel.getParameterValueById(id) : null; },
     params() {
       if (!l2d) return null;
@@ -822,7 +979,7 @@
   };
 
   // Standalone preview in a normal browser: no native shell, so run a short demo.
-  if (!window.webkit || !window.webkit.messageHandlers) {
+  if (!filmMode && (!window.webkit || !window.webkit.messageHandlers)) {
     const params = new URLSearchParams(location.search);
     if (!params.has("transparent")) document.body.style.background = "linear-gradient(#e9e4ff, #fde2ef)";
     window.pet.init({ model: params.get("model") || undefined });

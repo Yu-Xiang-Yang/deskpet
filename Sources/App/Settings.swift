@@ -72,6 +72,8 @@ final class AppSettings: ObservableObject {
     @Published var bootIntro: Bool { didSet { defaults.set(bootIntro, forKey: "bootIntro") } }
     /// The intro also when the owner returns: after the display slept, the screen was locked or the screen saver ran.
     @Published var introOnReturn: Bool { didSet { defaults.set(introOnReturn, forKey: "introOnReturn") } }
+    /// The desktop film: on the desktop, the pet plays in a live wallpaper (DesktopFilm) instead of floating above it.
+    @Published var desktopFilm: Bool { didSet { defaults.set(desktopFilm, forKey: "desktopFilm") } }
     /// Announce events of the system calendar: the day's overview, and each event shortly before it starts.
     @Published var calendarAlerts: Bool { didSet { defaults.set(calendarAlerts, forKey: "calendarAlerts") } }
     @Published var calendarLeadMinutes: Int { didSet { defaults.set(calendarLeadMinutes, forKey: "calendarLeadMinutes") } }
@@ -94,6 +96,10 @@ final class AppSettings: ObservableObject {
     @Published var wander: WanderLevel { didSet { defaults.set(wander.rawValue, forKey: "wander") } }
     /// Occasional pranks: pretending to sleep, peeking from a screen edge, sneaking up to the pointer, sulking.
     @Published var mischief: Bool { didSet { defaults.set(mischief, forKey: "mischief") } }
+    /// The pet goes to look at files put on the desktop and now and then sits on an icon (IconVisits); with
+    /// `iconNudge` it also nudges the icon it sits on a little aside and puts it back.
+    @Published var iconPlay: Bool { didSet { defaults.set(iconPlay, forKey: "iconPlay") } }
+    @Published var iconNudge: Bool { didSet { defaults.set(iconNudge, forKey: "iconNudge") } }
     /// Synthesised cat sounds for cat characters, and their volume (0…1).
     @Published var meow: Bool { didSet { defaults.set(meow, forKey: "meow") } }
     @Published var meowVolume: Double { didSet { defaults.set(meowVolume, forKey: "meowVolume") } }
@@ -139,6 +145,7 @@ final class AppSettings: ObservableObject {
             "agentEffort": "low",
             "bootIntro": false,
             "introOnReturn": false,
+            "desktopFilm": false,
             "followBeat": true,
         ])
         provider = ProviderKind(rawValue: defaults.string(forKey: "provider") ?? "") ?? .anthropic
@@ -168,6 +175,8 @@ final class AppSettings: ObservableObject {
         hotKey = HotKeyPreset(rawValue: defaults.string(forKey: "hotKey") ?? "") ?? .optionSpace
         wander = WanderLevel(rawValue: defaults.string(forKey: "wander") ?? "") ?? .medium
         mischief = defaults.bool(forKey: "mischief")
+        iconPlay = defaults.bool(forKey: "iconPlay")
+        iconNudge = defaults.bool(forKey: "iconNudge")
         meow = defaults.bool(forKey: "meow")
         meowVolume = defaults.double(forKey: "meowVolume")
         danceToMusic = defaults.bool(forKey: "danceToMusic")
@@ -183,6 +192,7 @@ final class AppSettings: ObservableObject {
         agentEffort = defaults.string(forKey: "agentEffort") ?? "low"
         bootIntro = defaults.bool(forKey: "bootIntro")
         introOnReturn = defaults.bool(forKey: "introOnReturn")
+        desktopFilm = defaults.bool(forKey: "desktopFilm")
         researchModeName = defaults.string(forKey: "researchModeName") ?? ""
         followBeat = defaults.bool(forKey: "followBeat")
     }
@@ -207,8 +217,9 @@ enum MeowKind: String {
     init(_ motion: PetMotion) {
         switch motion {
         case .happy, .wave, .shy: self = .trill
-        case .surprised, .shake: self = .mew
+        case .surprised, .shake, .perk: self = .mew
         case .sad: self = .sad
+        case .swish: self = .angry
         default: self = .meow
         }
     }

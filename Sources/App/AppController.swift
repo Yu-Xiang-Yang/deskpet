@@ -33,7 +33,12 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private var wanderTimer: Timer?
     private lazy var mischief = Mischief(pet: pet)
     private lazy var climber = Climber(pet: pet)
+    private lazy var iconVisits = IconVisits(pet: pet)
     private let bootIntro = BootIntro()
+    /// The live wallpaper the pet steps into while the desktop is in view.
+    private let film = DesktopFilm()
+    /// The owner hid the pet (menu); the desktop film does not play then either.
+    private var petHidden = false
     /// While the login intro plays, the pet's greeting waits.
     private var introPlaying = false
     /// Since when the owner has been away (display asleep, screen locked or screen saver running).
@@ -68,6 +73,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         agent.onStatus = { [weak self] status in self?.pet.setStatus(status) }
         agent.ask = { [weak self] text, done in
             guard let self else { done(false); return }
+            self.film.interrupt()  // the card hangs below the pet's own window
             self.approval.ask(text, below: self.pet.panel, done: done)
         }
         brain.start()
@@ -92,7 +98,9 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
 
         settingsWindow.onModelChange = { [weak self] in
             guard let self else { return }
-            self.pet.reload(model: self.settings.selectedModel)
+            let model = self.settings.selectedModel
+            self.pet.reload(model: model)
+            self.film.reload(model: model)
         }
         settingsWindow.onTestReminders = { [weak self] in self?.reminders.fireAllForTesting() }
         settingsWindow.onRunDailyTasks = { [weak self] in self?.runDailyTasks() }
@@ -128,7 +136,16 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         settings.$wander.removeDuplicates().sink { [weak self] level in self?.scheduleWander(level) }.store(in: &subscriptions)
         mischief.canAct = { [weak self] in self?.mayActOnItsOwn ?? false }
         mischief.reallyAsleep = { [weak self] in self?.brain.sleeping ?? false }
-        mischief.perched = { [weak self] in self?.climber.ledge != nil }
+        mischief.perched = { [weak self] in self?.climber.ledge != nil || self?.iconVisits.perch != nil }
+        iconVisits.canAct = { [weak self] in
+            guard let self else { return false }
+            return self.mayActOnItsOwn && !self.film.isLive && !self.approval.isVisible && Mischief.keyboardIdleSeconds >= 5
+        }
+        iconVisits.inFilm = { [weak self] in self?.film.isLive ?? false }
+        iconVisits.visitInFilm = { [weak self] name in self?.film.visitIcon(name, arrived: true) }
+        iconVisits.onIcons = { [weak self] icons in self?.film.icons = icons }
+        iconVisits.willLeap = { [weak self] in self?.climber.ownerMoved() }
+        settings.$iconPlay.removeDuplicates().sink { [weak self] on in self?.iconVisits.setEnabled(on) }.store(in: &subscriptions)
         mischief.canJoke = { [weak self] in
             guard let self else { return false }
             return self.pet.panel.isVisible && !self.researchMode && !self.chatPanel.isVisible && !self.brain.sleeping
@@ -146,6 +163,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
 
         installTestHooks()
         observeReturns()
+        setUpFilm()
 
         // The screen saver: keep an installed copy current, and give it fresh names and tasks every minute.
         SaverInstaller.updateIfInstalled()
@@ -191,6 +209,107 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.runDailyTasksIfDue() }
         }
     }
+
+    // MARK: Desktop film
+
+    private func setUpFilm() {
+        film.canPlay = { [weak self] in self?.filmAllowed ?? false }
+        film.screenForPet = { [weak self] in
+            guard let self else { return nil }
+            let f = self.pet.panel.frame
+            let body = NSPoint(x: f.midX, y: self.pet.characterOrigin.y + self.pet.characterHeight / 2)
+            return NSScreen.screens.first { $0.frame.contains(body) } ?? NSScreen.screens.first
+        }
+        film.menuBarIsDark = { [weak self] in
+            self?.statusItem?.button?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]).map { $0 == .darkAqua }
+        }
+        film.onLiveChange = { [weak self] live in self?.filmLiveChanged(live) }
+        film.onOpened = { [weak self] long in self?.filmOpened(long) }
+        film.onVisit = { [weak self] kind, name, owner, arrived in self?.filmVisited(kind: kind, name: name, owner: owner, arrived: arrived) }
+        film.onClick = { [weak self] area in self?.petDidClick(area: area, clickCount: 1) }
+        settings.$desktopFilm.removeDuplicates().sink { [weak self] on in
+            guard let self else { return }
+            self.film.setEnabled(on, model: on ? self.settings.selectedModel : nil)
+        }.store(in: &subscriptions)
+    }
+
+    /// The film plays only while the owner is around and the pet is free: shown, not in research mode or a
+    /// daily run (their answers need the pet's bubbles), not waiting for an approval, not held by the owner.
+    private var filmAllowed: Bool {
+        !petHidden && !researchMode && !dailyRunning && !introPlaying && awaySince == nil && !screenLocked
+            && !approval.isVisible && !pet.dragging && pet.bubbles == PetWindowController.chatBubbles
+    }
+
+    /// The pet steps into the film (its window fades out, its words and motions go to the film) or back out.
+    private func filmLiveChanged(_ live: Bool) {
+        let panel = pet.panel
+        if live {
+            mischief.interrupt()
+            iconVisits.interrupt()
+            pet.cancelHop()
+            chatPanel.dismiss()
+            pet.standIn = { [weak self] fn, args in self?.film.perform(fn, args) }
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.35
+                panel.animator().alphaValue = 0
+            }, completionHandler: { [weak self] in
+                MainActor.assumeIsolated {
+                    if self?.film.isLive == true { panel.orderOut(nil) }
+                    panel.alphaValue = 1
+                }
+            })
+        } else {
+            pet.standIn = nil
+            chatPanel.dismiss()  // it sat in the film
+            guard !petHidden else { return }
+            panel.alphaValue = 0
+            panel.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.35
+                panel.animator().alphaValue = 1
+            }
+        }
+    }
+
+    /// The film's character got to a desktop icon (a file just put there, or one it chose) or peeks from behind a
+    /// widget: its remark, as a subtitle. The Claude usage widget gets the real figure.
+    private func filmVisited(kind: String, name: String, owner: String, arrived: Bool) {
+        guard film.isLive else { return }
+        let text: String
+        if kind == "icon" {
+            text = arrived ? DesktopItems.remark(onArrival: name) : DesktopItems.remark(visiting: name)
+        } else {
+            var percent: Int?
+            if DesktopItems.widgetKind(owner: owner, name: name) == .claude, let usage = claudeUsage.refresh(),
+               usage.quotaIsFresh(now: Date()), let used = usage.quota?.fiveHour?.usedPercent {
+                percent = Int(used.rounded())
+            }
+            text = DesktopItems.remark(widgetOwner: owner, name: name, claudePercent: percent)
+        }
+        pet.meow(.mew, chance: 0.3)
+        pet.say(text)
+    }
+
+    /// After a full opening the pet greets the audience; after a short one it may give a little nod.
+    private func filmOpened(_ long: Bool) {
+        guard film.isLive, !brain.sleeping else { return }
+        guard long else {
+            if Double.random(in: 0..<1) < 0.4 { pet.play(.happy) }
+            return
+        }
+        let hour = Calendar.current.component(.hour, from: Date())
+        var lines = [tr("开拍啦——今天的主角是我！", "Rolling! Today's lead: me."),
+                     tr("你来看我演出啦？", "Here to watch the show?"),
+                     tr("嘘，电影开始了～", "Shh, the film is starting~"),
+                     tr("镜头对准我了吗？好，开始！", "Is the camera on me? Okay — action!")]
+        if (5..<11).contains(hour) { lines.append(tr("早安！今天的第一场戏，开拍～", "Morning! First scene of the day — action~")) }
+        if hour >= 19 || hour < 5 { lines.append(tr("夜场电影，我陪你看～", "A late show — I'll keep you company~")) }
+        pet.play(.wave)
+        pet.meow(.trill, chance: 0.6)
+        pet.say(lines.randomElement()!)
+    }
+
+    @objc private func toggleDesktopFilm() { settings.desktopFilm.toggle() }
 
     // MARK: Coming back
 
@@ -292,9 +411,13 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     func petDidMove() {
         mischief.ownerMoved()
         climber.ownerMoved()
+        iconVisits.ownerMoved()
     }
 
-    func petDidDrop() { climber.ownerDropped() }
+    func petDidDrop() {
+        climber.ownerDropped()
+        if climber.ledge == nil { iconVisits.ownerDropped() }  // or on top of a desktop icon
+    }
 
     func petContextMenu() -> NSMenu {
         let menu = NSMenu()
@@ -314,11 +437,16 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         mischief.interrupt()
         let name = settings.petName
         let wasOpen = chatPanel.isVisible
-        if !pet.panel.isVisible { setPetVisible(true) }
+        if petHidden { setPetVisible(true) }
         let placeholder = researchMode
             ? tr("科研模式：输入问题…（↩ 发送，Esc 关闭）", "Research mode: ask a question… (↩ send, Esc close)")
             : tr("和\(name)说点什么…（↩ 发送，Esc 关闭）", "Say something to \(name)… (↩ send, Esc close)")
-        chatPanel.present(below: pet.panel, placeholder: placeholder, activating: activating)
+        if film.isLive, let (point, screen) = film.chatPoint {
+            // The click that led here went to the desktop (Finder), so the box has to activate the app for keys.
+            chatPanel.present(centeredAt: point, on: screen, placeholder: placeholder, activating: true)
+        } else {
+            chatPanel.present(below: pet.panel, placeholder: placeholder, activating: activating)
+        }
         if !wasOpen { pet.play(.wave) }
     }
 
@@ -332,6 +460,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
 
     private func setResearchMode(_ on: Bool) {
         guard on != researchMode else { return }
+        if on { film.interrupt() }  // research answers need the pet's own bubbles
         researchMode = on
         mischief.interrupt()
         pet.cancelHop()
@@ -459,6 +588,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             pet.say(tr("我正在查别的东西，等一下哦～", "I'm busy looking something up, one moment~"))
             return
         }
+        film.interrupt()  // the answers need the pet's own bubbles
         dailyRunning = true
         settings.dailyLastRun = Self.dayStamp()
         pet.cancelHop()
@@ -515,7 +645,22 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
                 else if command == "away" { self.awaySince = Date().addingTimeInterval(-Self.minimumAway - 1) }
                 else if command == "back" { self.cameBack() }
                 else if command == "down" { self.climber.jumpDown() }
+                // Desktop icons: a visit now (of the pet's own accord, or to a named icon as if it had just arrived), leave.
+                else if command == "icons-visit" { self.iconVisits.visitNow() }
+                else if command.hasPrefix("icons-new:") { self.iconVisits.visitNow(arrived: true, name: String(command.dropFirst(10))) }
+                else if command == "icons-leave" { self.iconVisits.leave(jump: true) }
+                else if command == "icons-report", let dir = ProcessInfo.processInfo.environment["DESKPET_DIR"] {
+                    try? self.iconVisits.report.write(toFile: dir + "/icons.txt", atomically: true, encoding: .utf8)
+                }
+                else if command.hasPrefix("act:") { self.pet.play(PetMotion(rawValue: String(command.dropFirst(4))) ?? .idle) }
                 else if command.hasPrefix("meow:") { self.pet.meow(MeowKind(rawValue: String(command.dropFirst(5))) ?? .meow) }
+                // The desktop film without changing the stored setting: on, forced live / still / back to the desktop.
+                else if command == "film-on" { self.film.setEnabled(true, model: self.settings.selectedModel) }
+                else if command == "film-off" { self.film.setEnabled(false, model: nil) }
+                else if command == "film-live" { self.film.forced = true }
+                else if command == "film-still" { self.film.forced = false }
+                else if command == "film-auto" { self.film.forced = nil }
+                else if command.hasPrefix("film-click:") { self.petDidClick(area: String(command.dropFirst(11)), clickCount: 1) }
             }
         }
     }
@@ -623,7 +768,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     }
     @objc private func openSettings() { settingsWindow.show() }
     @objc private func openReminderSettings() { settingsWindow.show(tab: .reminders) }
-    @objc private func togglePet() { setPetVisible(!pet.panel.isVisible) }
+    @objc private func togglePet() { setPetVisible(petHidden) }
 
     @objc private func selectLayer(_ sender: NSMenuItem) {
         if let raw = sender.representedObject as? String, let layer = PetLayer(rawValue: raw) { settings.petLayer = layer }
@@ -689,9 +834,17 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
 
     @objc private func wanderNow() { wander() }
 
+    @objc private func toggleIconVisit() {
+        if iconVisits.perch != nil { iconVisits.leave(jump: true); return }
+        if !iconVisits.visitNow() {
+            pet.say(tr("现在够不着桌面图标：图标被窗口挡住了，或离菜单栏太近。", "No desktop icon in reach: they are under windows or too close to the menu bar."), ms: 5000)
+        }
+    }
+
     /// Hops to a random spot on the same screen, 160–520 pt away.
     private func wander() {
         guard pet.panel.isVisible, !pet.hopping, !pet.dragging else { return }
+        if iconVisits.perch != nil { return }  // sitting on a desktop icon until the visit ends
         if climber.wander() { return }  // up onto a window, along it, or back down
         guard let area = (pet.panel.screen ?? NSScreen.main)?.visibleFrame else { return }
         let frame = pet.panel.frame
@@ -707,7 +860,14 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     }
 
     private func setPetVisible(_ visible: Bool) {
-        if visible { pet.panel.orderFrontRegardless() } else { chatPanel.dismiss(); pet.panel.orderOut(nil) }
+        petHidden = !visible
+        if visible {
+            if !film.isLive { pet.panel.orderFrontRegardless() }  // otherwise the pet is in the film
+        } else {
+            chatPanel.dismiss()
+            pet.panel.orderOut(nil)
+            film.interrupt()
+        }
     }
 
     // MARK: Menus
@@ -729,6 +889,10 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             item(tr("联网检索（较慢）", "Search the web (slower)"), #selector(toggleResearchSearch)).state = engine.webSearch ? .on : .off
         }
         if !researchMode { item(tr("去别处转转", "Hop somewhere else"), #selector(wanderNow)) }
+        if !researchMode, settings.iconPlay, !film.isLive {
+            item(iconVisits.perch == nil ? tr("去桌面图标上坐坐", "Go sit on a desktop icon") : tr("从图标上下来", "Get down from the icon"),
+                 #selector(toggleIconVisit))
+        }
         item(tr("执行每日任务", "Run daily tasks"), #selector(runDailyTasksNow))
         // Also reachable here: on notched displays the menu bar item may be hidden behind the notch.
         let messages = NSMenuItem(title: tr("消息列表", "Messages"), action: nil, keyEquivalent: "")
@@ -746,6 +910,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         item(tr("合盖不休眠", "Stay awake with the lid closed"), #selector(toggleLidAwake)).state = LidSleep.staysAwake ? .on : .off
         item(tr("提醒设置…", "Reminders…"), #selector(openReminderSettings))
         item(tr("播放开机动画", "Play the login intro"), #selector(playIntro))
+        item(tr("桌面影院（动态墙纸）", "Desktop film (live wallpaper)"), #selector(toggleDesktopFilm)).state = settings.desktopFilm ? .on : .off
         item(tr("设置…", "Settings…"), #selector(openSettings), ",")
         menu.addItem(.separator())
         let layer = NSMenuItem(title: tr("显示层级", "Window layer"), action: nil, keyEquivalent: "")
@@ -770,7 +935,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }
         effort.submenu = efforts
         menu.addItem(effort)
-        item(pet.panel.isVisible ? tr("隐藏桌宠", "Hide pet") : tr("显示桌宠", "Show pet"), #selector(togglePet))
+        item(petHidden ? tr("显示桌宠", "Show pet") : tr("隐藏桌宠", "Hide pet"), #selector(togglePet))
         item(tr("退出", "Quit"), #selector(quit), "q")
     }
 

@@ -106,7 +106,9 @@ final class PetBrain {
         始终只输出一个 JSON 对象，不输出任何其它文字：
         {"reply": "你说的话", "motion": "动作", "remind": null, "weather_city": null, "remember": null, "forget": null, "open_app": null, "add_event": null, "agent_task": null, "claude_task": null}
         - reply：口语化、简短（一般不超过 60 个字），可以使用颜文字；使用与用户相同的语言。
-        - motion：从 idle, happy, wave, nod, shake, think, surprised, sleepy, shy, eat, sad 中选择最贴合语气的一个。
+        - motion：从 idle, happy, wave, nod, shake, think, surprised, sleepy, shy, eat, sad, swipe（伸爪拍一下，调皮）, \
+        sniff（凑近嗅嗅，好奇）, perk（竖起耳朵，警觉或感兴趣）, stretch（伸懒腰打哈欠，困倦或放松）, groom（舔爪洗脸，悠闲得意）, \
+        swish（甩尾巴，有点不满）中选择最贴合语气的一个。
         - remind：当用户请求在一段时间后提醒某件事时，填写 {"minutes": 距现在的分钟数, "text": "提醒内容"}；否则为 null。
         - weather_city：用户问到上下文里没有的地方的天气时，填写该城市名，reply 写一句“我查一下～”之类的话；\
         系统随后会提供天气数据，再请你正式回答。其它情况为 null。

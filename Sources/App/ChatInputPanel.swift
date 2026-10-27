@@ -13,6 +13,7 @@ final class ChatInputPanel: NSPanel, NSTextFieldDelegate {
     private var previousApp: NSRunningApplication?
     private let field = KeyPanelField()
     private let sendButton = NSButton()
+    private let background = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 300, height: 40))
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -28,7 +29,6 @@ final class ChatInputPanel: NSPanel, NSTextFieldDelegate {
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        let background = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 300, height: 40))
         background.material = .popover
         background.blendingMode = .behindWindow
         background.state = .active
@@ -74,11 +74,7 @@ final class ChatInputPanel: NSPanel, NSTextFieldDelegate {
     }
 
     func present(below anchor: NSWindow, placeholder: String, activating: Bool = false) {
-        if activating, !NSApp.isActive {
-            previousApp = NSWorkspace.shared.frontmostApplication
-            NSApp.activate(ignoringOtherApps: true)
-        }
-        field.placeholderString = placeholder
+        prepare(placeholder: placeholder, activating: activating, cinematic: false)
         let a = anchor.frame
         var origin = NSPoint(x: a.midX - frame.width / 2, y: a.minY - frame.height - 4)
         if let screen = anchor.screen ?? NSScreen.main {
@@ -95,6 +91,37 @@ final class ChatInputPanel: NSPanel, NSTextFieldDelegate {
         if parent == nil { anchor.addChildWindow(self, ordered: .above) }
         makeKeyAndOrderFront(nil)
         makeFirstResponder(field)
+    }
+
+    /// In the desktop film: a wider box centred on `point` (screen coordinates), where the subtitles appear, in
+    /// the film's dark and gold style.
+    func present(centeredAt point: NSPoint, on screen: NSScreen, placeholder: String, activating: Bool) {
+        prepare(placeholder: placeholder, activating: activating, cinematic: true)
+        let visible = screen.visibleFrame
+        var origin = NSPoint(x: point.x - frame.width / 2, y: point.y - frame.height / 2)
+        origin.x = min(max(origin.x, visible.minX + 4), visible.maxX - frame.width - 4)
+        origin.y = min(max(origin.y, visible.minY + 4), visible.maxY - frame.height - 4)
+        parent?.removeChildWindow(self)
+        setFrameOrigin(origin)
+        makeKeyAndOrderFront(nil)
+        makeFirstResponder(field)
+    }
+
+    private func prepare(placeholder: String, activating: Bool, cinematic: Bool) {
+        if activating, !NSApp.isActive {
+            previousApp = NSWorkspace.shared.frontmostApplication
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        field.placeholderString = placeholder
+        setContentSize(NSSize(width: cinematic ? 460 : 300, height: 40))
+        background.appearance = cinematic ? NSAppearance(named: .darkAqua) : nil
+        background.material = cinematic ? .hudWindow : .popover
+        background.layer?.borderColor = cinematic
+            ? NSColor(calibratedRed: 0.84, green: 0.67, blue: 0.31, alpha: 0.85).cgColor
+            : NSColor(calibratedRed: 0.96, green: 0.56, blue: 0.77, alpha: 0.7).cgColor
+        sendButton.contentTintColor = cinematic
+            ? NSColor(calibratedRed: 0.88, green: 0.72, blue: 0.38, alpha: 1)
+            : NSColor(calibratedRed: 0.48, green: 0.35, blue: 0.88, alpha: 1)
     }
 
     /// Closes without handing focus back to the previous app (another window of this app takes over).
