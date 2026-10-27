@@ -30,6 +30,8 @@ final class DesktopFilm: NSObject, WKScriptMessageHandler, WKNavigationDelegate 
     private var clickMonitor: Any?
     /// Catches clicks on the character (CatcherPanel) while the pointer is on it.
     private var catcher: CatcherPanel?
+    /// The pet's menu is open from the catcher: the catcher stays where it is, or the menu would move along with it.
+    private var menuShowing = false
     private var followTicks = 0
     /// Left and right clicks the catcher took, for test runs.
     private(set) var caught = (left: 0, right: 0)
@@ -310,6 +312,7 @@ final class DesktopFilm: NSObject, WKScriptMessageHandler, WKNavigationDelegate 
         lastPointer = mouse
         let p = pagePoint(mouse)
         webView.call("film.pointer", .number(Double(p.x)), .number(Double(p.y)), .bool(window.frame.contains(mouse)))
+        guard !menuShowing else { return }
         guard isLive, window.frame.contains(mouse) else { catcher?.orderOut(nil); return }
         webView.evaluateJavaScript("film.over(\(Double(p.x)), \(Double(p.y)))") { [weak self] result, _ in
             MainActor.assumeIsolated { self?.placeCatcher(on: result is String, at: mouse) }
@@ -321,7 +324,7 @@ final class DesktopFilm: NSObject, WKScriptMessageHandler, WKNavigationDelegate 
     /// below every app window) follows it and takes the clicks: a right click opens the pet's menu, a left click
     /// pets it or opens the chat. Elsewhere the panel goes, so the icons stay clickable.
     private func placeCatcher(on character: Bool, at point: NSPoint) {
-        guard character, isLive, NSEvent.mouseLocation == point || lastPointer == point else {
+        guard !menuShowing, character, isLive, NSEvent.mouseLocation == point || lastPointer == point else {
             if !character { catcher?.orderOut(nil) }
             return
         }
@@ -338,8 +341,13 @@ final class DesktopFilm: NSObject, WKScriptMessageHandler, WKNavigationDelegate 
             self?.clickedCharacter(at: NSEvent.mouseLocation)
         }
         panel.view.onRightDown = { [weak self] event, view in
-            self?.caught.right += 1
-            self?.onContextMenu?(event, view)
+            guard let self else { return }
+            self.caught.right += 1
+            // The menu tracks the pointer in a loop of its own and returns once it closes.
+            self.menuShowing = true
+            self.onContextMenu?(event, view)
+            self.menuShowing = false
+            self.lastPointer = NSPoint(x: -1, y: -1)
         }
         catcher = panel
         return panel

@@ -459,8 +459,14 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     func petContextMenu() -> NSMenu {
         let menu = NSMenu()
         addItems(to: menu)
+        menu.delegate = contextMenuWatch
         return menu
     }
+
+    /// Whether the pet's context menu is open; the pet does not move on its own meanwhile (the menu would be left
+    /// behind or, in the film, carried along).
+    private var contextMenuOpen: Bool { contextMenuWatch.open }
+    private let contextMenuWatch = ContextMenuWatch()
 
     // MARK: Actions
 
@@ -990,7 +996,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
 
     /// Only while the owner is around and nothing else is going on; never in research mode.
     private var mayActOnItsOwn: Bool {
-        pet.panel.isVisible && !researchMode && !chatPanel.isVisible && !brain.sleeping && !brain.musicPlaying
+        pet.panel.isVisible && !researchMode && !chatPanel.isVisible && !brain.sleeping && !brain.musicPlaying && !contextMenuOpen
             && !mischief.busy && !pet.hopping && !pet.dragging && PetBrain.idleSeconds < 120
     }
 
@@ -1211,4 +1217,11 @@ enum LoginItem {
             return false
         }
     }
+}
+
+/// Follows whether the pet's context menu is open.
+final class ContextMenuWatch: NSObject, NSMenuDelegate {
+    private(set) var open = false
+    func menuWillOpen(_ menu: NSMenu) { open = true }
+    func menuDidClose(_ menu: NSMenu) { open = false }
 }
