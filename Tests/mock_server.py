@@ -1,10 +1,14 @@
-"""Mock of the Anthropic Messages and OpenAI Chat Completions streaming endpoints for the integration test.
+"""Mock of the Anthropic Messages and OpenAI Chat Completions streaming endpoints for the integration test, and of
+the OpenAI-compatible speech endpoint (/audio/speech) for trying the cloud voice in a test run of the app.
 
 Each request body is appended to requests.jsonl so that the test can inspect what the client sent.
 Usage: python3 Tests/mock_server.py <port> <log-dir>
 """
+import io
 import json
+import math
 import sys
+import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(sys.argv[1])
@@ -36,6 +40,8 @@ class Handler(BaseHTTPRequestHandler):
             self.anthropic(body)
         elif self.path.endswith("/chat/completions"):
             self.openai(body)
+        elif self.path.endswith("/audio/speech"):
+            self.speech()
         else:
             self.send_response(404)
             self.end_headers()
@@ -127,6 +133,28 @@ class Handler(BaseHTTPRequestHandler):
             events = [chunk({"content": json.dumps({"reply": reply, "motion": "nod", "remind": remind}, ensure_ascii=False)}),
                       chunk({}, "stop"), (None, "[DONE]")]
         sse(self, events)
+
+
+    def speech(self):
+        """A 0.6 s tone as WAV audio, whatever the text and voice; no key is accepted (as by a local service), a wrong
+        key gets an OpenAI-style error."""
+        if self.headers.get("Authorization", "Bearer test-key") != "Bearer test-key":
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"error":{"message":"Invalid API key"}}')
+            return
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            w.writeframes(b"".join(int(8000 * math.sin(2 * math.pi * 440 * i / 16000)).to_bytes(2, "little", signed=True)
+                                   for i in range(9600)))
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/wav")
+        self.end_headers()
+        self.wfile.write(buf.getvalue())
 
 
 ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

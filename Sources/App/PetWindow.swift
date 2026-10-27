@@ -45,6 +45,8 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
     let panel: PetPanel
     private(set) var webView: WKWebView!
     private let overlay = PetInteractionView()
+    /// Reads the bubbles aloud when the settings ask for it.
+    let speaker = Speaker()
 
     private var ready = false
     private var pending: [() -> Void] = []
@@ -95,6 +97,7 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
         container.addSubview(webView)
         container.addSubview(overlay)
         panel.contentView = container
+        speaker.onSpeaking = { [weak self] on in self?.send("pet.setSpeaking", [.bool(on)], alsoHere: true) }
     }
 
     // MARK: Lifecycle
@@ -258,11 +261,13 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
         whenReady { [weak self] in self?.webView.call(fn, arguments: args) }
     }
 
-    /// Adds a bubble to the stack above the pet; `fromUser` shows the user's own words.
+    /// Adds a bubble to the stack above the pet; `fromUser` shows the user's own words. The pet's own bubbles are
+    /// read aloud when that is on; when the owner speaks, the pet falls silent.
     func say(_ text: String, kind: String = "", ms: Int? = nil, fromUser: Bool = false) {
         var opts: [String: JSON] = ["kind": .string(kind), "from": fromUser ? "user" : "pet"]
         if let ms { opts["ms"] = .number(Double(ms)) }
         send("pet.say", [.string(text), .object(opts)])
+        if fromUser { speaker.stop() } else { speaker.speak(text) }
     }
 
     func play(_ motion: PetMotion) {
@@ -301,6 +306,7 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
         whenReady { [weak self] in
             self?.webView.call("pet.finishAnswer", .string(id.uuidString), .string(text), .string(conversationID))
         }
+        speaker.speak(text, limit: Speaker.answerLimit)
     }
 
     func failAnswer(_ id: UUID) {

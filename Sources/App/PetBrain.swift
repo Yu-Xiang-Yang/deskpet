@@ -74,6 +74,7 @@ final class PetBrain {
             "- Claude 额度提醒\(on(settings.claudeUsageAlerts))：读取 Claude Usage Widget 的数据，5 小时或每周额度用到 70%、90% 时提醒。",
             "- 主动闲聊：\(chatterText)。",
             "- 桌面行为：随音乐摇摆\(on(settings.danceToMusic))；自己走动（\(settings.wander.title)）；攀爬窗口；淘气行为\(on(settings.mischief))（装睡、从屏幕边缘探头、偷偷靠近鼠标）。",
+            "- 朗读气泡\(on(settings.speech))：开启后你说的每个气泡都会被读出来（\(settings.speechEngine == .cloud ? "云端语音" : "系统语音")；科研回答只读开头约 \(Speaker.answerLimit) 字），主人发消息时停下；在“设置 → 通用 → 语音”中开关、选择声音与语速。",
             "- 开机动画\(on(settings.bootIntro))：开机或解锁后播放金色进度条与白金页；屏幕保护程序可在“设置 → 通用”中安装。",
         ]
         lines.append("- 打开应用：只需打开时经 open_app 打开。")

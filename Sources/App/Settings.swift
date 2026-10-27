@@ -103,6 +103,18 @@ final class AppSettings: ObservableObject {
     /// Synthesised cat sounds for cat characters, and their volume (0…1).
     @Published var meow: Bool { didSet { defaults.set(meow, forKey: "meow") } }
     @Published var meowVolume: Double { didSet { defaults.set(meowVolume, forKey: "meowVolume") } }
+    /// Read the pet's bubbles aloud (Speaker): with a system voice or through an OpenAI-compatible speech service.
+    @Published var speech: Bool { didSet { defaults.set(speech, forKey: "speech") } }
+    @Published var speechEngine: SpeechEngine { didSet { defaults.set(speechEngine.rawValue, forKey: "speechEngine") } }
+    /// Identifier of the chosen system voice; empty: the most natural installed voice for each bubble's language.
+    @Published var speechVoice: String { didSet { defaults.set(speechVoice, forKey: "speechVoice") } }
+    /// Speaking rate (1 = normal) and volume (0…1), for both kinds of voice.
+    @Published var speechRate: Double { didSet { defaults.set(speechRate, forKey: "speechRate") } }
+    @Published var speechVolume: Double { didSet { defaults.set(speechVolume, forKey: "speechVolume") } }
+    /// The cloud voice (CloudSpeech); its API key is the Keychain item "speech".
+    @Published var cloudSpeechBaseURL: String { didSet { defaults.set(cloudSpeechBaseURL, forKey: "cloudSpeechBaseURL") } }
+    @Published var cloudSpeechModel: String { didSet { defaults.set(cloudSpeechModel, forKey: "cloudSpeechModel") } }
+    @Published var cloudSpeechVoice: String { didSet { defaults.set(cloudSpeechVoice, forKey: "cloudSpeechVoice") } }
     /// Global shortcut that opens the chat box.
     @Published var hotKey: HotKeyPreset { didSet { defaults.set(hotKey.rawValue, forKey: "hotKey") } }
 
@@ -132,6 +144,14 @@ final class AppSettings: ObservableObject {
             "mischief": true,
             "meow": true,
             "meowVolume": 0.5,
+            "speech": false,
+            "speechEngine": SpeechEngine.system.rawValue,
+            "speechVoice": "",
+            "speechRate": 1.0,
+            "speechVolume": 0.8,
+            "cloudSpeechBaseURL": CloudSpeech.siliconFlowURL,
+            "cloudSpeechModel": CloudSpeech.siliconFlowModel,
+            "cloudSpeechVoice": CloudSpeech.siliconFlowVoice,
             "danceToMusic": true,
             "autoMemory": true,
             "weatherAlerts": true,
@@ -179,6 +199,14 @@ final class AppSettings: ObservableObject {
         iconNudge = defaults.bool(forKey: "iconNudge")
         meow = defaults.bool(forKey: "meow")
         meowVolume = defaults.double(forKey: "meowVolume")
+        speech = defaults.bool(forKey: "speech")
+        speechEngine = SpeechEngine(rawValue: defaults.string(forKey: "speechEngine") ?? "") ?? .system
+        speechVoice = defaults.string(forKey: "speechVoice") ?? ""
+        speechRate = defaults.double(forKey: "speechRate")
+        speechVolume = defaults.double(forKey: "speechVolume")
+        cloudSpeechBaseURL = defaults.string(forKey: "cloudSpeechBaseURL") ?? CloudSpeech.siliconFlowURL
+        cloudSpeechModel = defaults.string(forKey: "cloudSpeechModel") ?? CloudSpeech.siliconFlowModel
+        cloudSpeechVoice = defaults.string(forKey: "cloudSpeechVoice") ?? CloudSpeech.siliconFlowVoice
         danceToMusic = defaults.bool(forKey: "danceToMusic")
         autoMemory = defaults.bool(forKey: "autoMemory")
         weatherAlerts = defaults.bool(forKey: "weatherAlerts")
@@ -221,6 +249,20 @@ enum MeowKind: String {
         case .sad: self = .sad
         case .swish: self = .angry
         default: self = .meow
+        }
+    }
+}
+
+/// Where the voice that reads the bubbles comes from.
+enum SpeechEngine: String, CaseIterable, Identifiable {
+    case system, cloud
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system: return tr("系统语音（离线）", "System voice (offline)")
+        case .cloud: return tr("云端语音（OpenAI 兼容接口）", "Cloud voice (OpenAI-compatible)")
         }
     }
 }

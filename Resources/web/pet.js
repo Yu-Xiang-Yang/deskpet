@@ -31,6 +31,8 @@
   let current = "idle";
   let sleeping = false;
   let talking = false;
+  // While the native voice reads a bubble aloud (Speaker.swift), the mouth keeps moving after the typing ends.
+  let speaking = false;
   let researchOn = false;
   // Pictures instead of a Live2D model (see figureFrame): a sprite character (one picture per expression) as the
   // everyday character, and the research-mode figure (a single picture) while research mode is on.
@@ -339,8 +341,8 @@
   window.addEventListener("resize", layoutBubbles);
 
   function setTalking(on) {
-    talking = on;
-    root.classList.toggle("talking", on && !sleeping);
+    talking = on || speaking;
+    root.classList.toggle("talking", talking && !sleeping);
   }
 
   /** Shows a bubble. opts: { from: "pet" | "user", kind: "" | "reminder" | "error", ms } */
@@ -909,6 +911,11 @@
     },
     setResearchFigure,
     setDragging(on) { if (on) play("surprised"); },
+    /** The native voice is reading a bubble aloud. */
+    setSpeaking(on) {
+      speaking = !!on;
+      setTalking(typingCount > 0);
+    },
     /** Stops drawing (the desktop film while windows cover it); the last frame stays. */
     setPaused(on) {
       paused = !!on;

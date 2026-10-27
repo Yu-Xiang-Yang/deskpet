@@ -543,5 +543,72 @@ do {
     check(!DesktopItems.remark(widgetOwner: "通知中心", name: "").contains("通知中心"), "No owner name for the system's own widgets")
 }
 
+// MARK: Speech
+
+do {
+    func spoken(_ s: String) -> String { SpeechText.clean(s) }
+    check(spoken("你好呀～今天也要加油！🌸") == "你好呀，今天也要加油！", "Speech: tilde becomes a pause, emoji go (\(spoken("你好呀～今天也要加油！🌸")))")
+    check(spoken("🗑 已忘掉 2 条关于“咖啡”的记忆") == "已忘掉 2 条关于“咖啡”的记忆。", "Speech: text-style emoji go (\(spoken("🗑 已忘掉 2 条关于“咖啡”的记忆")))")
+    check(spoken("嘿嘿 (｡･ω･｡) 被摸头了 (^▽^)") == "嘿嘿 被摸头了。", "Speech: kaomoji go (\(spoken("嘿嘿 (｡･ω･｡) 被摸头了 (^▽^)")))")
+    check(spoken("（笑）去看 Nature (2024)") == "（笑）去看 Nature (2024)。", "Speech: words in brackets stay (\(spoken("（笑）去看 Nature (2024)")))")
+    let md = "## 结论\n- **能量**守恒：$E = mc^2$\n\n```python\nprint(1)\n```\n| a | b |\n|---|---|\n详见 [论文](https://arxiv.org/abs/1) 与 https://x.org/y 。"
+    check(spoken(md) == "结论。能量守恒。详见 论文 与。", "Speech: Markdown, code, formulas, tables and links (\(spoken(md)))")
+    check(spoken("余额低于 $1.50，或 $2 以下") == "余额低于 $1.50，或 $2 以下。", "Speech: prices are not formulas (\(spoken("余额低于 $1.50，或 $2 以下")))")
+    check(spoken("每 15–30 分钟 → 去走走") == "每 15到30 分钟，去走走。", "Speech: ranges and arrows in words (\(spoken("每 15–30 分钟 → 去走走")))")
+    check(spoken("Rarely (every 15–30 min)") == "Rarely (every 15 to 30 min).", "Speech: English ranges (\(spoken("Rarely (every 15–30 min)")))")
+    check(spoken("1. 第一步\n2) 第二步\n3.5 秒后") == "第一步。第二步。3.5 秒后。", "Speech: list numbers go, decimals stay (\(spoken("1. 第一步\n2) 第二步\n3.5 秒后")))")
+    check(spoken("🌸✨") == "" && spoken("```\ncode\n```") == "" && spoken("～～") == "", "Speech: nothing to say")
+    check(spoken("Hello , world\nBye") == "Hello, world. Bye.", "Speech: English lines (\(spoken("Hello , world\nBye")))")
+
+    let long = String(repeating: "这是一句话。", count: 20)
+    let cut = SpeechText.excerpt(long, limit: 40)
+    check(cut.truncated && cut.text.hasSuffix("。") && cut.text.count <= 40 && cut.text.count >= 36, "Speech excerpt ends a sentence (\(cut.text.count))")
+    let hard = SpeechText.excerpt(String(repeating: "长", count: 100), limit: 30)
+    check(hard.truncated && hard.text.count == 30, "Speech excerpt without sentence ends")
+    check(SpeechText.excerpt("短句。", limit: 30) == ("短句。", false), "Speech excerpt of a short text")
+
+    check(SpeechText.language(of: "好的，OK") == "zh-CN" && SpeechText.language(of: "Hello there") == "en-US"
+          && SpeechText.language(of: "こんにちは、元気？") == "ja-JP" && SpeechText.language(of: "안녕하세요") == "ko-KR", "Speech language")
+
+    let voices = [
+        SpeechVoice(identifier: "com.apple.eloquence.zh-CN.Flo", name: "Flo", language: "zh-CN", quality: 1, female: true),
+        SpeechVoice(identifier: "com.apple.voice.compact.zh-CN.Tingting", name: "Tingting", language: "zh-CN", quality: 1, female: true),
+        SpeechVoice(identifier: "com.apple.voice.compact.zh-HK.Sinji", name: "Sinji", language: "zh-HK", quality: 1, female: true),
+        SpeechVoice(identifier: "com.apple.voice.compact.zh-TW.Meijia", name: "Meijia", language: "zh-TW", quality: 1, female: true),
+        SpeechVoice(identifier: "com.apple.speech.synthesis.voice.Albert", name: "Albert", language: "en-US", quality: 1, novelty: true),
+        SpeechVoice(identifier: "com.apple.voice.compact.en-US.Samantha", name: "Samantha", language: "en-US", quality: 1, female: true),
+        SpeechVoice(identifier: "com.apple.speech.synthesis.voice.Fred", name: "Fred", language: "en-US", quality: 1, female: false),
+    ]
+    check(SpeechVoices.ranked(voices, for: "zh-CN").map(\.name) == ["Tingting", "Meijia", "Flo"], "Voices: region, no Cantonese, synthetic last")
+    check(SpeechVoices.ranked(voices, for: "en-US").map(\.name) == ["Samantha", "Fred"], "Voices: novelty voices left out")
+    check(!SpeechVoices.hasNatural(voices, language: "zh-CN"), "Voices: only standard ones installed")
+    let premium = voices + [SpeechVoice(identifier: "com.apple.voice.premium.zh-CN.Lilian", name: "Lilian", language: "zh-CN", quality: 3, female: true),
+                            SpeechVoice(identifier: "com.apple.voice.enhanced.zh-CN.Tingting", name: "Tingting", language: "zh-CN", quality: 2, female: true)]
+    check(SpeechVoices.pick(premium, language: "zh-CN", preferred: "")?.name == "Lilian" && SpeechVoices.hasNatural(premium, language: "zh-CN"),
+          "Voices: premium first")
+    check(SpeechVoices.pick(premium, language: "zh-CN", preferred: "com.apple.voice.compact.zh-TW.Meijia")?.name == "Meijia",
+          "Voices: the owner's choice")
+    check(SpeechVoices.pick(premium, language: "en-US", preferred: "com.apple.voice.premium.zh-CN.Lilian")?.name == "Samantha",
+          "Voices: a choice in another language is passed over")
+    check(SpeechVoices.pick(voices, language: "ja-JP", preferred: "") == nil, "Voices: none for the language")
+
+    check(CloudSpeech.endpoint(baseURL: " https://api.siliconflow.cn/v1/ ")?.absoluteString == "https://api.siliconflow.cn/v1/audio/speech"
+          && CloudSpeech.endpoint(baseURL: "http://127.0.0.1:8799/v1/audio/speech")?.absoluteString == "http://127.0.0.1:8799/v1/audio/speech",
+          "Cloud speech endpoint")
+    check(CloudSpeech.endpoint(baseURL: "") == nil && CloudSpeech.endpoint(baseURL: "api.siliconflow.cn/v1") == nil, "Cloud speech endpoint needs a URL")
+    let body = CloudSpeech.body(text: "你好", model: CloudSpeech.siliconFlowModel, voice: CloudSpeech.siliconFlowVoice, speed: 9)
+    check(body["input"]?.string == "你好" && body["voice"]?.string == "FunAudioLLM/CosyVoice2-0.5B:diana" && body["speed"]?.double == 4
+          && body["response_format"]?.string == "mp3" && body["instructions"] == nil, "Cloud speech body")
+    check(CloudSpeech.body(text: "hi", model: "gpt-4o-mini-tts", voice: "coral", speed: 1)["instructions"]?.string?.isEmpty == false,
+          "Cloud speech tone for gpt-4o")
+    check(CloudSpeech.errorMessage(Data(#"{"error":{"message":"Invalid token"}}"#.utf8), status: 401) == "HTTP 401: Invalid token"
+          && CloudSpeech.errorMessage(Data(#"{"message":"余额不足"}"#.utf8), status: 403) == "HTTP 403: 余额不足"
+          && CloudSpeech.errorMessage(Data("oops".utf8), status: 500) == "HTTP 500", "Cloud speech errors")
+
+    var queue = SpeechQueue<Int>(capacity: 2)
+    check(queue.push(1).isEmpty && queue.push(2).isEmpty && queue.push(3) == [1], "Speech queue drops the oldest")
+    check(queue.pop() == 2 && queue.removeAll() == [3] && queue.pop() == nil && queue.isEmpty, "Speech queue order and clearing")
+}
+
 print(failures == 0 ? "All \(checks) checks passed." : "\(failures) of \(checks) checks failed.")
 exit(failures == 0 ? 0 : 1)

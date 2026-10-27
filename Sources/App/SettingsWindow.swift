@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 
 final class SettingsWindowController {
@@ -9,6 +10,7 @@ final class SettingsWindowController {
     var onCheckWeather: ((@escaping (String) -> Void) -> Void)?
     var onCheckCalendar: ((@escaping (String) -> Void) -> Void)?
     var onPreviewMeow: (() -> Void)?
+    var onPreviewSpeech: ((@escaping (String) -> Void) -> Void)?
     var onInstallSaver: (() -> String)?
 
     func show(tab: SettingsView.Tab = .general) {
@@ -21,6 +23,7 @@ final class SettingsWindowController {
                 onCheckWeather: { [weak self] report in self?.onCheckWeather?(report) },
                 onCheckCalendar: { [weak self] report in self?.onCheckCalendar?(report) },
                 onPreviewMeow: { [weak self] in self?.onPreviewMeow?() },
+                onPreviewSpeech: { [weak self] outcome in self?.onPreviewSpeech?(outcome) },
                 onInstallSaver: { [weak self] in self?.onInstallSaver?() ?? "" }))
             let w = NSWindow(contentViewController: hosting)
             w.title = tr("桌宠设置", "DeskPet Settings")
@@ -45,8 +48,12 @@ struct SettingsView: View {
     var onCheckWeather: (@escaping (String) -> Void) -> Void
     var onCheckCalendar: (@escaping (String) -> Void) -> Void
     var onPreviewMeow: () -> Void
+    var onPreviewSpeech: (@escaping (String) -> Void) -> Void
     var onInstallSaver: () -> String
     @State private var saverResult = ""
+    @State private var voices = Speaker.installedVoices
+    @State private var speechKey = Keychain.hasValue(account: "speech") ? (Keychain.read(account: "speech") ?? "") : ""
+    @State private var speechResult = ""
 
     @ObservedObject private var memory = MemoryStore.shared
     @State private var newMemory = ""
@@ -163,6 +170,7 @@ struct SettingsView: View {
                         "When no other windows cover the desktop (less than a fifth of the screen), the pet steps into the wallpaper and plays in a full-screen film: film grain, light that follows the time of day, camera moves and cuts, its words as subtitles; it stands where no widget or window hides it, and now and then jumps onto a desktop icon or peeks out from behind a widget and remarks on what it shows. It looks at the pointer; a click on its head pets it, on its body opens the chat box where the subtitles are, on the empty desktop makes it look there. When windows cover the desktop again, the picture freezes as the wallpaper and the pet returns."))
                     .font(.caption).foregroundStyle(.secondary)
             }
+            voiceSection
             Section(tr("Claude Code（开发任务）", "Claude Code (development work)")) {
                 TextField(tr("默认项目目录", "Default project folder"), text: $settings.claudeProjectDir)
                 Text(tr("说“让 Claude 来做……”或交代开发类任务时，桌宠在“终端”里打开 Claude Code 会话（使用你本机登录的 Claude 账号，与上面聊天所用的模型无关），任务作为第一句话发出；没说项目时在这个目录里工作。",
@@ -206,6 +214,84 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    // MARK: Voice
+
+    /// The system voices offered in the picker: Chinese and English ones that do not sound synthetic, best first.
+    private var systemVoices: [SpeechVoice] {
+        (SpeechVoices.ranked(voices, for: "zh-CN") + SpeechVoices.ranked(voices, for: "en-US")).filter { !SpeechVoices.isSynthetic($0) }
+    }
+
+    private func voiceTitle(_ v: SpeechVoice) -> String {
+        let quality = v.quality >= 3 ? tr("高级", "Premium") : v.quality == 2 ? tr("增强", "Enhanced") : tr("标准", "Standard")
+        return "\(v.name)（\(v.language) · \(quality)）"
+    }
+
+    private var voiceSection: some View {
+        Section(tr("语音", "Voice")) {
+            Toggle(tr("朗读气泡", "Read bubbles aloud"), isOn: $settings.speech)
+            Text(tr("桌宠说的每个气泡都会读出来（科研回答只读开头约 \(Speaker.answerLimit) 字），说话时嘴巴跟着动；你发消息时它会停下。",
+                    "Every bubble of the pet is read aloud (research answers up to about \(Speaker.answerLimit) characters), with the mouth moving; it stops when you send a message."))
+                .font(.caption).foregroundStyle(.secondary)
+            if settings.speech {
+                Picker(tr("声音来源", "Voice source"), selection: $settings.speechEngine) {
+                    ForEach(SpeechEngine.allCases) { Text($0.title).tag($0) }
+                }
+                if settings.speechEngine == .system {
+                    Picker(tr("声音", "Voice"), selection: $settings.speechVoice) {
+                        Text(tr("自动（每种语言中最自然的已安装声音）", "Automatic (the most natural installed voice per language)")).tag("")
+                        ForEach(systemVoices, id: \.identifier) { Text(voiceTitle($0)).tag($0.identifier) }
+                    }
+                    if !SpeechVoices.hasNatural(voices, language: "zh-CN") {
+                        Text(tr("本机只有标准音质的中文声音，听起来偏机械。可在 系统设置 → 辅助功能 → 阅读与朗读（macOS 15 及更早为“朗读内容”）→ 系统声音 → 管理声音 中下载中文声音的高级（Premium）或增强（Enhanced）版本（免费，离线使用），下载后这里会自动选用。",
+                                "Only standard-quality Chinese voices are installed, which sound mechanical. Download the Premium or Enhanced version of a Chinese voice under System Settings → Accessibility → Read & Speak (Spoken Content up to macOS 15) → System Voice → Manage Voices (free, works offline); it is then chosen here automatically."))
+                            .font(.caption).foregroundStyle(.orange)
+                        Button(tr("打开系统朗读设置", "Open the system's speech settings")) {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.Accessibility-Settings.extension?SpokenContent") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                    }
+                } else {
+                    Menu(tr("预设", "Presets")) {
+                        Button(tr("硅基流动 CosyVoice2（中文最自然）", "SiliconFlow CosyVoice2 (most natural Chinese)")) {
+                            settings.cloudSpeechBaseURL = CloudSpeech.siliconFlowURL
+                            settings.cloudSpeechModel = CloudSpeech.siliconFlowModel
+                            settings.cloudSpeechVoice = CloudSpeech.siliconFlowVoice
+                        }
+                        Button("OpenAI gpt-4o-mini-tts") {
+                            settings.cloudSpeechBaseURL = "https://api.openai.com/v1"
+                            settings.cloudSpeechModel = "gpt-4o-mini-tts"
+                            settings.cloudSpeechVoice = "coral"
+                        }
+                    }
+                    TextField("Base URL", text: $settings.cloudSpeechBaseURL)
+                    TextField(tr("模型", "Model"), text: $settings.cloudSpeechModel)
+                    TextField(tr("声音", "Voice"), text: $settings.cloudSpeechVoice)
+                    SecureField("API key", text: $speechKey)
+                        .onChange(of: speechKey) { _, key in Keychain.write(account: "speech", value: key.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                    Text(tr("每个气泡的文字会发送到该服务合成语音，按量计费；未填 key 或请求失败时改用系统语音。硅基流动的预设声音写作“模型:名字”：diana 欢快女声、claire 温柔女声、anna 沉稳女声、bella 激情女声，alex、benjamin、charles、david 为男声。",
+                            "The text of every bubble is sent to this service to be spoken, billed by use; without a key or when a request fails, the system voice speaks instead. SiliconFlow's preset voices are written \"model:name\": diana cheerful, claire gentle, anna calm, bella passionate (female); alex, benjamin, charles, david (male)."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Slider(value: $settings.speechRate, in: 0.7...1.4, step: 0.05) {
+                    Text(tr("语速", "Rate") + " \(Int((settings.speechRate * 100).rounded()))%")
+                }
+                Slider(value: $settings.speechVolume, in: 0.1...1) { Text(tr("音量", "Volume")) }
+                HStack {
+                    Button(tr("试听", "Listen")) {
+                        speechResult = tr("朗读中…", "Speaking…")
+                        onPreviewSpeech { result in speechResult = result }
+                    }
+                    Text(speechResult).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+        }
+        .onAppear { voices = Speaker.installedVoices }
+        .onReceive(NotificationCenter.default.publisher(for: AVSpeechSynthesizer.availableVoicesDidChangeNotification)) { _ in
+            voices = Speaker.installedVoices
+        }
     }
 
     // MARK: Owner

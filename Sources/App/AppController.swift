@@ -105,6 +105,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         settingsWindow.onTestReminders = { [weak self] in self?.reminders.fireAllForTesting() }
         settingsWindow.onRunDailyTasks = { [weak self] in self?.runDailyTasks() }
         settingsWindow.onPreviewMeow = { [weak self] in self?.pet.meow(.meow) }
+        settingsWindow.onPreviewSpeech = { [weak self] outcome in self?.pet.speaker.preview(outcome: outcome) }
         settingsWindow.onCheckWeather = { [weak self] report in self?.weather.check(force: true, report: report) }
         settingsWindow.onCheckCalendar = { [weak self] report in
             self?.calendar.requestAccess { _ in self?.calendar.check(force: true, report: report) }
@@ -114,6 +115,8 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             DispatchQueue.main.async { self?.pet.setResearchFigure(ResearchFigure.url) }  // after didSet stored it
         }.store(in: &subscriptions)
         settings.$petScale.dropFirst().removeDuplicates().sink { [weak self] in self?.pet.scale = CGFloat($0) }.store(in: &subscriptions)
+        settings.$speech.dropFirst().removeDuplicates().filter { !$0 }.sink { [weak self] _ in self?.pet.speaker.stop() }
+            .store(in: &subscriptions)
         settings.$petLayer.dropFirst().sink { [weak self] layer in
             self?.pet.setLayer(layer)
             if layer != .top { self?.climber.jumpDown() }  // on a window it would be hidden behind other windows
@@ -654,6 +657,12 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
                 }
                 else if command.hasPrefix("act:") { self.pet.play(PetMotion(rawValue: String(command.dropFirst(4))) ?? .idle) }
                 else if command.hasPrefix("meow:") { self.pet.meow(MeowKind(rawValue: String(command.dropFirst(5))) ?? .meow) }
+                // Reading aloud: a bubble of the pet, and how the last one was spoken (DESKPET_DIR/speech.txt).
+                else if command.hasPrefix("say:") { self.pet.say(String(command.dropFirst(4))) }
+                else if command == "settings" { self.settingsWindow.show() }
+                else if command == "speech-report", let dir = ProcessInfo.processInfo.environment["DESKPET_DIR"] {
+                    try? self.pet.speaker.report.write(toFile: dir + "/speech.txt", atomically: true, encoding: .utf8)
+                }
                 // The desktop film without changing the stored setting: on, forced live / still / back to the desktop.
                 else if command == "film-on" { self.film.setEnabled(true, model: self.settings.selectedModel) }
                 else if command == "film-off" { self.film.setEnabled(false, model: nil) }
