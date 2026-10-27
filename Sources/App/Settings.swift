@@ -43,6 +43,27 @@ final class AppSettings: ObservableObject {
     @Published var chatterMinutes: Int { didSet { defaults.set(chatterMinutes, forKey: "chatterMinutes") } }
     /// Every n-th remark is written by the model; the others come from the local phrase pool. 0 = never.
     @Published var chatterLLMEvery: Int { didSet { defaults.set(chatterLLMEvery, forKey: "chatterLLMEvery") } }
+    /// Spontaneous remarks come from inner thoughts: the model forms a few thoughts, rates the urge to voice each,
+    /// and the pet speaks only when one is strong enough (otherwise `chatterLLMEvery` mixes in local phrases).
+    @Published var innerThoughts: Bool { didSet { defaults.set(innerThoughts, forKey: "innerThoughts") } }
+    /// How readily a thought is voiced.
+    @Published var talkativeness: Talkativeness { didSet { defaults.set(talkativeness.rawValue, forKey: "talkativeness") } }
+    /// Ask about things the owner mentioned (an exam, a meeting) once they are over.
+    @Published var followUps: Bool { didSet { defaults.set(followUps, forKey: "followUps") } }
+    /// Look at the screen now and then: a screenshot goes to the model, which says what the owner is doing.
+    @Published var screenAwareness: Bool { didSet { defaults.set(screenAwareness, forKey: "screenAwareness") } }
+    /// Minutes between looks.
+    @Published var screenMinutes: Int { didSet { defaults.set(screenMinutes, forKey: "screenMinutes") } }
+    /// Apps never captured, by name (separated by commas or new lines), besides the password managers.
+    @Published var screenExcluded: String { didSet { defaults.set(screenExcluded, forKey: "screenExcluded") } }
+    /// The service that looks at screenshots: "anthropic", "openai", or empty for the chat's service.
+    @Published var screenProvider: String { didSet { defaults.set(screenProvider, forKey: "screenProvider") } }
+    var screenProviderKind: ProviderKind { ProviderKind(rawValue: screenProvider) ?? provider }
+    /// The Claude API balance read in the Console (dollars; 0: none entered), when it was entered, and the cents spent
+    /// on that UTC day before then (ClaudeCost).
+    @Published var claudeCreditBase: Double { didSet { defaults.set(claudeCreditBase, forKey: "claudeCreditBase") } }
+    @Published var claudeCreditSince: Double { didSet { defaults.set(claudeCreditSince, forKey: "claudeCreditSince") } }
+    @Published var claudeCreditOffset: Double { didSet { defaults.set(claudeCreditOffset, forKey: "claudeCreditOffset") } }
     @Published var aiReminderWording: Bool { didSet { defaults.set(aiReminderWording, forKey: "aiReminderWording") } }
     @Published var reminders: ReminderConfig {
         didSet { defaults.set(try? JSONEncoder().encode(reminders), forKey: "reminders") }
@@ -111,6 +132,8 @@ final class AppSettings: ObservableObject {
     /// Speaking rate (1 = normal) and volume (0…1), for both kinds of voice.
     @Published var speechRate: Double { didSet { defaults.set(speechRate, forKey: "speechRate") } }
     @Published var speechVolume: Double { didSet { defaults.set(speechVolume, forKey: "speechVolume") } }
+    /// Bubbles longer than this many characters (as spoken) are shown without being read; 0: no limit.
+    @Published var speechMaxChars: Int { didSet { defaults.set(speechMaxChars, forKey: "speechMaxChars") } }
     /// The cloud voice (CloudSpeech); its API key is the Keychain item "speech".
     @Published var cloudSpeechBaseURL: String { didSet { defaults.set(cloudSpeechBaseURL, forKey: "cloudSpeechBaseURL") } }
     @Published var cloudSpeechModel: String { didSet { defaults.set(cloudSpeechModel, forKey: "cloudSpeechModel") } }
@@ -135,6 +158,16 @@ final class AppSettings: ObservableObject {
             "dailyLastRun": "",
             "chatterMinutes": 30,
             "chatterLLMEvery": 3,
+            "innerThoughts": true,
+            "talkativeness": Talkativeness.normal.rawValue,
+            "followUps": true,
+            "screenAwareness": false,
+            "screenMinutes": 10,
+            "screenExcluded": "",
+            "screenProvider": "",
+            "claudeCreditBase": 0.0,
+            "claudeCreditSince": 0.0,
+            "claudeCreditOffset": 0.0,
             "aiReminderWording": false,
             "modelID": "",
             "petScale": 0.7,
@@ -149,6 +182,7 @@ final class AppSettings: ObservableObject {
             "speechVoice": "",
             "speechRate": 1.0,
             "speechVolume": 0.8,
+            "speechMaxChars": 120,
             "cloudSpeechBaseURL": CloudSpeech.siliconFlowURL,
             "cloudSpeechModel": CloudSpeech.siliconFlowModel,
             "cloudSpeechVoice": CloudSpeech.siliconFlowVoice,
@@ -183,6 +217,16 @@ final class AppSettings: ObservableObject {
         dailyLastRun = defaults.string(forKey: "dailyLastRun") ?? ""
         chatterMinutes = defaults.integer(forKey: "chatterMinutes")
         chatterLLMEvery = defaults.integer(forKey: "chatterLLMEvery")
+        innerThoughts = defaults.bool(forKey: "innerThoughts")
+        talkativeness = Talkativeness(rawValue: defaults.string(forKey: "talkativeness") ?? "") ?? .normal
+        followUps = defaults.bool(forKey: "followUps")
+        screenAwareness = defaults.bool(forKey: "screenAwareness")
+        screenMinutes = defaults.integer(forKey: "screenMinutes")
+        screenExcluded = defaults.string(forKey: "screenExcluded") ?? ""
+        screenProvider = defaults.string(forKey: "screenProvider") ?? ""
+        claudeCreditBase = defaults.double(forKey: "claudeCreditBase")
+        claudeCreditSince = defaults.double(forKey: "claudeCreditSince")
+        claudeCreditOffset = defaults.double(forKey: "claudeCreditOffset")
         aiReminderWording = defaults.bool(forKey: "aiReminderWording")
         reminders = defaults.data(forKey: "reminders").flatMap { try? JSONDecoder().decode(ReminderConfig.self, from: $0) }
             ?? ReminderConfig()
@@ -204,6 +248,7 @@ final class AppSettings: ObservableObject {
         speechVoice = defaults.string(forKey: "speechVoice") ?? ""
         speechRate = defaults.double(forKey: "speechRate")
         speechVolume = defaults.double(forKey: "speechVolume")
+        speechMaxChars = defaults.integer(forKey: "speechMaxChars")
         cloudSpeechBaseURL = defaults.string(forKey: "cloudSpeechBaseURL") ?? CloudSpeech.siliconFlowURL
         cloudSpeechModel = defaults.string(forKey: "cloudSpeechModel") ?? CloudSpeech.siliconFlowModel
         cloudSpeechVoice = defaults.string(forKey: "cloudSpeechVoice") ?? CloudSpeech.siliconFlowVoice
@@ -244,7 +289,7 @@ enum MeowKind: String {
     /// The sound that fits a motion of a reply.
     init(_ motion: PetMotion) {
         switch motion {
-        case .happy, .wave, .shy: self = .trill
+        case .happy, .wave, .shy, .grab: self = .trill
         case .surprised, .shake, .perk: self = .mew
         case .sad: self = .sad
         case .swish: self = .angry
@@ -277,6 +322,29 @@ enum PetLayer: String, CaseIterable, Identifiable {
         case .top: return tr("始终置顶", "Always on top")
         case .normal: return tr("普通窗口（可被遮挡）", "Like a normal window")
         case .desktop: return tr("仅在桌面（位于所有窗口之下）", "Desktop only (below all windows)")
+        }
+    }
+}
+
+enum Talkativeness: String, CaseIterable, Identifiable {
+    case quiet, normal, chatty
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .quiet: return tr("少言（只说非常想说的）", "Quiet (only what it really wants to say)")
+        case .normal: return tr("适中", "Normal")
+        case .chatty: return tr("健谈", "Chatty")
+        }
+    }
+
+    /// The urge (1–5) a thought needs to be voiced, before the rise for unanswered remarks.
+    var threshold: Double {
+        switch self {
+        case .quiet: return 4.5
+        case .normal: return 3.5
+        case .chatty: return 2.5
         }
     }
 }
@@ -314,6 +382,10 @@ enum Keychain {
     private static let isolated = ProcessInfo.processInfo.environment["DESKPET_DIR"] != nil
     private static let service = isolated ? "local.deskpet.test" : "local.deskpet"
     private static var cache: [String: String?] = [:]
+    private static let lock = NSLock()
+    /// Background reads run one after another, so that a second reader of an item finds it cached instead of asking
+    /// for access again.
+    private static let queue = DispatchQueue(label: "local.deskpet.keychain")
 
     private static func flagKey(_ account: String) -> String { (isolated ? "test." : "") + "hasKey.\(account)" }
 
@@ -328,10 +400,21 @@ enum Keychain {
     }
 
     static func read(account: String) -> String? {
-        if let cached = cache[account] { return cached }
+        if let cached = cachedValue(account) { return cached }
         let value = readUncached(account: account)
-        cache[account] = value
+        lock.withLock { cache[account] = value }
         return value
+    }
+
+    /// `read` off the main thread: a first read may wait for the user to allow access, and the pet keeps running
+    /// meanwhile.
+    static func readInBackground(account: String) async -> String? {
+        if let cached = cachedValue(account) { return cached }
+        return await withCheckedContinuation { c in queue.async { c.resume(returning: read(account: account)) } }
+    }
+
+    private static func cachedValue(_ account: String) -> String?? {
+        lock.withLock { cache[account] }
     }
 
     private static func readUncached(account: String) -> String? {
@@ -349,7 +432,7 @@ enum Keychain {
 
     @discardableResult
     static func write(account: String, value: String) -> Bool {
-        cache[account] = value.isEmpty ? .some(nil) : value
+        lock.withLock { cache[account] = value.isEmpty ? .some(nil) : value }
         UserDefaults.standard.set(!value.isEmpty, forKey: flagKey(account))
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

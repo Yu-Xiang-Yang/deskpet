@@ -5,8 +5,8 @@ import Foundation
 enum PetMotion: String, CaseIterable, Codable {
     case idle, happy, wave, nod, shake, think, surprised, sleepy, shy, eat, sad
     /// Played as keyframed actions (pet.js ACTIONS): pawing at something, sniffing, ears up, a stretch and a yawn,
-    /// licking a paw, the tail swishing.
-    case swipe, sniff, perk, stretch, groom, swish
+    /// licking a paw, the tail swishing, reaching up with both forepaws for the mouse pointer.
+    case swipe, sniff, perk, stretch, groom, swish, grab
 }
 
 /// A reminder the model asks to schedule, e.g. "remind me about the meeting in 30 minutes".
@@ -202,7 +202,8 @@ struct PetReply: Codable, Equatable {
         return PetReply(reply: text.isEmpty ? "……" : text, motion: .idle, remind: nil)
     }
 
-    private static func jsonCandidates(in text: String) -> [String] {
+    /// The text itself, the body of its first Markdown code fence, and its outermost braces: where a JSON object may be.
+    static func jsonCandidates(in text: String) -> [String] {
         var result = [text]
         if let fenceStart = text.range(of: "```") {
             var body = text[fenceStart.upperBound...]

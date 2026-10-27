@@ -358,6 +358,213 @@ do {
     try? FileManager.default.removeItem(at: memFile)
 }
 
+// MARK: Layered memory: forgetting, recall, consolidation, inner thoughts
+
+do {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+    let now = cal.date(from: DateComponents(year: 2026, month: 10, day: 28, hour: 20))!
+    let day = 86400.0
+
+    // Files of earlier versions (id, text, created, source) still load, as facts.
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let legacy = try? decoder.decode([Memory].self, from: Data(#"[{"id":"7D3F7E0B-2C1A-4C9E-9C7A-1B2D3E4F5A6B","text":"主人对花生过敏","created":"2026-10-12T08:00:00Z","source":"manual"}]"#.utf8))
+    check(legacy?.first?.kind == .fact && legacy?.first?.importance == 8 && legacy?.first?.pinned == true, "Legacy memory loads as a pinned fact")
+    var roundTrip = Memory(text: "主人组会被导师批评", kind: .episode, importance: 7, created: now)
+    roundTrip.followUp = now.addingTimeInterval(day)
+    roundTrip.followUpNote = "后来怎么样"
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    check((try? decoder.decode(Memory.self, from: encoder.encode(roundTrip))) == roundTrip, "Memory round trip with the new fields")
+
+    // The forgetting curve (MemoryBank).
+    var e = Memory(text: "主人组会被导师批评", kind: .episode, importance: 5, created: now.addingTimeInterval(-10 * day))
+    check(abs(e.strengthDays - 10) < 1e-9 && abs(e.retention(at: now) - exp(-1)) < 1e-9, "Episode retention after the forgetting curve")
+    check(!e.faded(at: now) && e.faded(at: now.addingTimeInterval(16 * day)), "Unrecalled episode fades after about 25 days")
+    e.recall(at: now)
+    check(e.recalls == 1 && e.strengthDays == 20 && e.retention(at: now) == 1, "Recall restarts the curve and doubles the strength")
+    e.recall(at: now.addingTimeInterval(3600))
+    check(e.recalls == 1, "One recall in six hours")
+    var waiting = Memory(text: "主人下周考试", kind: .episode, importance: 1, created: now.addingTimeInterval(-60 * day))
+    waiting.followUp = now
+    check(!waiting.faded(at: now), "A pending follow-up keeps the episode")
+    check(!Memory(text: "主人喜欢猫", importance: 1, created: now.addingTimeInterval(-900 * day)).faded(at: now), "Facts never fade")
+    check(!Memory(text: "主人去了海边", kind: .episode, importance: 1, source: "manual", created: now.addingTimeInterval(-900 * day)).faded(at: now),
+          "Manual entries never fade")
+
+    // Relevance without word segmentation; words every memory shares count for little.
+    let texts = ["主人对花生过敏", "10 月 27 日主人说组会被导师批评了，有些沮丧", "主人喜欢喝美式咖啡", "主人 11 月 20 日答辩",
+                 "主人养了一只叫团子的猫", "主人在写关于图神经网络的论文"]
+    func best(_ query: String) -> Int? {
+        let scores = MemoryRecall.lexicalScores(query: query, texts: texts)
+        guard let top = scores.max(), top > 0 else { return nil }
+        return scores.firstIndex(of: top)
+    }
+    check(best("明天组会要汇报，好紧张") == 1, "Recall by a shared word")
+    check(best("帮我想想答辩 PPT 怎么做") == 3, "Recall of a date by its event")
+    check(best("猫怎么样了") == 4, "Recall by a one-character word")
+    check(best("你好") == nil && best("主人") == nil || MemoryRecall.lexicalScores(query: "主人", texts: texts).max()! < 0.1,
+          "A greeting or the shared word alone recalls nothing")
+    let terms = MemoryRecall.terms("GNN 论文")
+    check(terms["gnn"] == 1 && terms["论文"] == 1 && terms["论"] == 0.5, "Terms: Latin words, Chinese bigrams and characters")
+
+    // Ranking (Generative Agents): relevance outweighs recency; embeddings count by their spread.
+    let lunch = Memory(text: "主人中午吃了牛肉面", kind: .episode, importance: 3, created: now.addingTimeInterval(-3600))
+    let meeting = Memory(text: "主人组会被导师批评，有些沮丧", kind: .episode, importance: 6, created: now.addingTimeInterval(-2 * day))
+    let ranked = MemoryRecall.rank([lunch, meeting], query: "组会的事我想了想", now: now)
+    check(ranked.first?.memory.id == meeting.id && ranked.first?.relevance == 1 && ranked.last!.relevance < 0.3,
+          "Relevance in the ranking (\(ranked.map(\.relevance)))")
+    let semantic = MemoryRecall.rank([lunch, meeting], query: "心情不好", now: now, semantic: [0.6, 0.7])
+    check(semantic.first?.memory.id == meeting.id && abs(semantic.first!.relevance - 0.5) < 1e-9, "Semantic similarity counts by its spread")
+    let firstLine = MemoryRecall.line(ranked[0].memory, now: now, calendar: cal)
+    check(MemoryRecall.select(ranked, budget: firstLine.count + 1, now: now, calendar: cal).count == 1, "Selection within the budget")
+    var planned = meeting
+    planned.followUp = cal.date(from: DateComponents(year: 2026, month: 10, day: 29, hour: 19))
+    planned.followUpNote = "和导师沟通得怎么样"
+    let rendered = MemoryRecall.render([planned, Memory(text: "主人对花生过敏", created: now)], now: now, calendar: cal)
+    check(rendered.contains("[2026-10-26，前天] 主人组会被导师批评") && rendered.contains("打算 2026-10-29 19:00 问问：和导师沟通得怎么样"),
+          "Episode line with its day and follow-up (\(rendered))")
+    check(rendered.range(of: "### 关于主人的长期事实")!.lowerBound < rendered.range(of: "### 经历")!.lowerBound, "Facts before episodes")
+
+    // Consolidation output.
+    let raw = """
+    ```json
+    {"episodes": [{"text": "10 月 28 日主人说明天上午有组会，要汇报进展", "importance": 12, "follow_up_at": "2026-10-29 14:00", "follow_up": "组会汇报顺利吗"},
+                  {"text": "闲聊", "importance": 2, "follow_up_at": null, "follow_up": null},
+                  {"text": "主人晚上吃了火锅", "importance": 3, "follow_up_at": "2025-01-01 10:00", "follow_up": "好吃吗"}],
+     "facts": [{"text": "主人不吃香菜", "importance": 7}],
+     "updates": [{"id": "f1", "text": "主人已戒咖啡"}, {"id": "E2", "text": null}],
+     "insight": {"text": "主人这周压力较大", "importance": 6}}
+    ```
+    """
+    let digest = MemoryDigest.parse(raw, now: now, calendar: cal)
+    check(digest?.episodes.count == 2 && digest?.episodes.first?.importance == 10, "Digest: trivial episodes left out, importance clamped")
+    check(digest?.episodes.first?.followUp == cal.date(from: DateComponents(year: 2026, month: 10, day: 29, hour: 14))
+          && digest?.episodes.first?.followUpNote == "组会汇报顺利吗", "Digest: follow-up time and question")
+    check(digest?.episodes.last?.followUp == nil && digest?.episodes.last?.followUpNote == nil, "Digest: a follow-up long past is dropped")
+    check(digest?.facts == [.init(text: "主人不吃香菜", importance: 7)]
+          && digest?.updates == [.init(label: "F1", text: "主人已戒咖啡"), .init(label: "E2", text: nil)], "Digest: facts, rewording and deletion")
+    check(digest?.insight == .init(text: "主人这周压力较大", importance: 6), "Digest: impression")
+    check(MemoryDigest.parse("对不起，这段对话没有可整理的内容。", now: now) == nil, "Unreadable digest")
+    check(MemoryDigest.parseTime("2026-10-29", calendar: cal) == cal.date(from: DateComponents(year: 2026, month: 10, day: 29, hour: 19)), "A bare date is read as 19:00")
+    let late = MemoryDigest.parse(#"{"episodes":[{"text":"主人下午去医院复查","importance":7,"follow_up_at":"2026-10-28 18:00","follow_up":"复查结果"}],"facts":[],"updates":[],"insight":null}"#,
+                                  now: now, calendar: cal)
+    check(late?.episodes.first?.followUp == now.addingTimeInterval(1800), "A follow-up just past moves to half an hour from now")
+
+    // The store: consolidation with labels (manual entries stay as they are), follow-ups, core and recalled sections, forgetting.
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("layered-\(UUID().uuidString).json")
+    let store = MemoryStore(file: file)
+    store.calendar = cal
+    store.add("主人每天喝咖啡")
+    store.add("主人对花生过敏", source: "manual")
+    let context = store.digestContext(for: "咖啡", at: now)
+    check(context.text.contains("### 主人手动记下的（只读）") && context.labels.count == 1 && context.text.contains("- F1 [") , "Digest context labels all but manual entries")
+    var update = MemoryDigest()
+    update.updates = [.init(label: "F1", text: "主人已戒咖啡")]
+    update.episodes = [.init(text: "主人说明天上午有组会要汇报", importance: 6, followUp: now.addingTimeInterval(3600), followUpNote: "组会顺利吗")]
+    update.insight = .init(text: "主人这周压力较大", importance: 6)
+    let applied = store.apply(update, labels: context.labels, at: now)
+    check(applied.added == 2 && applied.changed == 1 && applied.removed == 0 && store.items.contains { $0.text == "主人已戒咖啡" }, "Digest applied (\(applied))")
+    check(store.apply(update, labels: [:], at: now).added == 0, "The same digest again adds nothing")
+    check(store.apply(MemoryDigest(updates: [.init(label: "F9", text: nil)]), labels: ["F9": store.items.first { $0.source == "manual" }!.id], at: now).removed == 0,
+          "Manual entries are not changed by consolidation")
+    let episode = store.items.first { $0.kind == .episode }!.id
+    check(store.dueFollowUps(at: now).isEmpty && store.dueFollowUps(at: now.addingTimeInterval(3600)).map(\.id) == [episode], "Follow-up due at its time")
+    store.postponeFollowUp(episode, retry: now.addingTimeInterval(7200))
+    check(store.dueFollowUps(at: now.addingTimeInterval(7200)).count == 1, "Postponed follow-up")
+    store.postponeFollowUp(episode, retry: now.addingTimeInterval(9000))
+    store.postponeFollowUp(episode, retry: now.addingTimeInterval(9900))
+    check(store.dueFollowUps(at: now.addingTimeInterval(day)).isEmpty, "Follow-up given up after three postponements")
+    check(store.coreSection(at: now).contains("主人对花生过敏") && store.coreSection(at: now).contains("主人这周压力较大")
+          && !store.coreSection(at: now).contains("组会"), "Core memories: pinned facts and impressions")
+    let block = store.recallBlock(for: "组会准备得怎么样", at: now)
+    check(block.text.contains("组会") && !block.text.contains("花生") && block.relevant == [episode], "Recalled memories beyond the core (\(block))")
+    store.recall(block.relevant, at: now)
+    check(MemoryStore(file: file).items.first { $0.id == episode }?.recalls == 1, "Recall strengthens the memory and is saved")
+    var asked = MemoryDigest()
+    asked.episodes = [.init(text: "主人周五要去医院复查", importance: 7, followUp: now.addingTimeInterval(600), followUpNote: "复查结果")]
+    store.apply(asked, labels: [:], at: now)
+    let checkup = store.items.first { $0.text == "主人周五要去医院复查" }!.id
+    store.followedUp(checkup, at: now.addingTimeInterval(700))
+    check(store.dueFollowUps(at: now.addingTimeInterval(day)).isEmpty && store.items.first { $0.id == checkup }?.recalls == 1, "Followed up: asked once, recalled")
+    let gone = store.forgetFaded(at: now.addingTimeInterval(400 * day))
+    check(gone.count == 3 && store.items.allSatisfy { $0.kind == .fact }, "Episodes and impressions fade, facts stay (\(gone.map(\.text)))")
+    try? FileManager.default.removeItem(at: file)
+
+    // Inner thoughts: the strongest is voiced at the threshold, repetitions are left out.
+    let thoughts = InnerThoughts.parse(#"{"thoughts":[{"thought":"主人好像很累","say":"要不要歇一会儿？","motion":"sleepy","motivation":3,"follow_up":null},{"thought":"组会应该结束了","say":"组会顺利吗？","motion":"perk","motivation":4.5,"follow_up":"e1"},{"thought":"想打个哈欠","say":"","motion":"stretch","motivation":9,"follow_up":null}]}"#) ?? []
+    check(thoughts.count == 3 && thoughts[1].followUp == "E1" && thoughts[1].motion == .perk && thoughts[2].motivation == 5, "Thoughts parsed, urge clamped")
+    check((try? InnerThoughts.choose(thoughts, threshold: 3.5, recent: []).get())?.say == "组会顺利吗？", "The strongest thought is said")
+    check(InnerThoughts.choose(thoughts, threshold: 5, recent: []) == .failure(.init(reason: .weak)), "Silent below the threshold")
+    check((try? InnerThoughts.choose(thoughts, threshold: 3, recent: ["组会顺利吗"]).get())?.say == "要不要歇一会儿？", "A repetition gives way to the next thought")
+    check(InnerThoughts.choose(thoughts, threshold: 4, recent: ["组会顺利吗"]) == .failure(.init(reason: .repeated)), "Silent rather than repeating")
+    check(InnerThoughts.choose([thoughts[2]], threshold: 1, recent: []) == .failure(.init(reason: .empty)), "A thought without words stays a thought")
+    check(InnerThoughts.threshold(base: 3.5, unanswered: 0) == 3.5 && InnerThoughts.threshold(base: 3.5, unanswered: 2) == 4.5
+          && InnerThoughts.threshold(base: 3.5, unanswered: 9) == 5, "Unanswered remarks raise the threshold")
+    check(InnerThoughts.parse("今天天气真好呀") == nil, "No thoughts in plain prose")
+    check(InnerThoughts.similarity("组会顺利吗？", "组会顺利吗") > 0.99 && InnerThoughts.similarity("要喝点水吗", "组会顺利吗") < 0.2, "Remark similarity")
+}
+
+// MARK: Watching the screen
+
+do {
+    // Image messages in both wire formats.
+    let jpeg = Data([0xFF, 0xD8, 0xFF, 0xD9])
+    let a = AnthropicProvider(apiKey: "k", model: "claude-opus-5-5", serverFallback: false).imageMessage("看看", jpeg: jpeg)
+    check(a["content"]?[0]?["type"]?.string == "image" && a["content"]?[0]?["source"]?["media_type"]?.string == "image/jpeg"
+          && a["content"]?[0]?["source"]?["data"]?.string == jpeg.base64EncodedString() && a["content"]?[1]?["text"]?.string == "看看",
+          "Anthropic image message: base64 image block before the text")
+    let o = OpenAICompatibleProvider(apiKey: "k", baseURL: "http://127.0.0.1:1/v1", model: "m").imageMessage("看看", jpeg: jpeg)
+    check(o["content"]?[0]?["text"]?.string == "看看" && o["content"]?[1]?["image_url"]?["url"]?.string == "data:image/jpeg;base64,/9j/2Q==",
+          "OpenAI-compatible image message: data URL")
+
+    // Apps left out, scenes not looked at again, screenshot size.
+    check(ScreenGlances.excluded(bundleID: "com.1password.1password", name: "1Password", list: ""), "Password managers are never captured")
+    check(ScreenGlances.excluded(bundleID: "com.tencent.xinWeChat", name: "微信", list: "微信，招商银行") &&
+          ScreenGlances.excluded(bundleID: nil, name: "招商银行 Mac", list: "微信、招商银行") &&
+          !ScreenGlances.excluded(bundleID: "com.apple.dt.Xcode", name: "Xcode", list: "微信, 招商银行"), "The owner's list, by name")
+    let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    let seen = ScreenGlance(date: t0, looked: t0, app: "Xcode", title: "PetMind.swift", activity: "在 Xcode 里写代码", kind: "work")
+    check(ScreenGlances.sameScene(seen, app: "Xcode", title: "PetMind.swift", now: t0.addingTimeInterval(600)), "Same app and window: no new screenshot")
+    check(!ScreenGlances.sameScene(seen, app: "Xcode", title: "PetBrain.swift", now: t0.addingTimeInterval(600))
+          && !ScreenGlances.sameScene(seen, app: "Xcode", title: "PetMind.swift", now: t0.addingTimeInterval(1900))
+          && !ScreenGlances.sameScene(seen, app: "Xcode", title: nil, now: t0.addingTimeInterval(60)), "Another window, half an hour later, or no title: look again")
+    check(ScreenGlances.size(width: 2940, height: 1912) == (1280, 832) && ScreenGlances.size(width: 800, height: 600) == (800, 600),
+          "Screenshot scaled to 1280 px on its longest side")
+
+    // The model's account.
+    check(ScreenGlances.parse(#"{"activity":"在 B 站看猫咪视频","kind":"leisure","private":false}"#)! == ("在 B 站看猫咪视频", "leisure"), "Glance parsed")
+    check(ScreenGlances.parse(#"{"activity":"在网银查看账户余额 12,345 元","kind":"other","private":true}"#)?.activity == "在处理私人事务（内容未记录）",
+          "A private screen is not described")
+    check(ScreenGlances.parse(#"{"activity":"写论文","kind":"dreaming","private":false}"#)?.kind == "other" && ScreenGlances.parse("看不清") == nil,
+          "Unknown kind, unreadable account")
+    check(ScreenGlances.contextLine(seen, now: t0.addingTimeInterval(180)) == "主人屏幕上（3 分钟前，工作）：在 Xcode 里写代码"
+          && ScreenGlances.contextLine(seen, now: t0.addingTimeInterval(1300)) == nil, "Context line while fresh")
+}
+
+// MARK: Claude API spending (Admin API cost report)
+
+do {
+    let iso = ISO8601DateFormatter()
+    let page = Data(#"{"data":[{"starting_at":"2026-10-01T00:00:00Z","ending_at":"2026-10-02T00:00:00Z","results":[{"amount":"250.5","currency":"USD"},{"amount":"49.5","currency":"USD"}]},{"starting_at":"2026-10-27T00:00:00Z","ending_at":"2026-10-28T00:00:00Z","results":[]},{"starting_at":"2026-10-28T00:00:00Z","ending_at":"2026-10-29T00:00:00Z","results":[{"amount":"123.45","currency":"USD"}]}],"has_more":true,"next_page":"page_x"}"#.utf8)
+    let parsed = ClaudeCost.parse(page)
+    check(parsed?.days.count == 3 && parsed?.days[iso.date(from: "2026-10-01T00:00:00Z")!] == 300 && parsed?.next == "page_x", "Cost report page parsed and added up per day")
+    check(ClaudeCost.parse(Data(#"{"type":"error","error":{"message":"invalid x-api-key"}}"#.utf8)) == nil, "An error is not a cost report")
+    let now = iso.date(from: "2026-10-28T13:00:00Z")!
+    let cost = ClaudeCost(days: parsed!.days, fetched: now)
+    check(cost.today == 123.45 && cost.month == 423.45, "Spent today and this month (UTC)")
+    // A balance of $20 read at 06:00 UTC on Oct 28, when 23.45 cents of that day were already spent: 100 cents more since.
+    let since = iso.date(from: "2026-10-28T06:00:00Z")!
+    check(abs(cost.remaining(base: 20, since: since, offset: 23.45) - 19) < 1e-9, "Balance estimated from the one entered")
+    check(cost.lines(base: 20, since: since, offset: 23.45) == ["今日（UTC）花费 $1.23", "本月（UTC）花费 $4.23", "估算余额 $19.00"]
+          && cost.lines(base: 0, since: nil, offset: 0).count == 2, "Spending lines")
+    let url = ClaudeCost.url(from: iso.date(from: "2026-10-05T17:30:00Z")!, page: "p2")?.absoluteString ?? ""
+    check(url.hasPrefix("https://api.anthropic.com/v1/organizations/cost_report?") && url.contains("starting_at=2026-10-05T00:00:00Z")
+          && url.contains("bucket_width=1d") && url.contains("limit=31") && url.contains("page=p2"), "Cost report URL from the UTC day (\(url))")
+    check(ClaudeCost.monthStart(now) == iso.date(from: "2026-10-01T00:00:00Z"), "UTC month start")
+}
+
 // MARK: Claude usage (Claude Usage Widget files)
 
 do {
@@ -567,6 +774,16 @@ do {
     check(hard.truncated && hard.text.count == 30, "Speech excerpt without sentence ends")
     check(SpeechText.excerpt("短句。", limit: 30) == ("短句。", false), "Speech excerpt of a short text")
 
+    let parts = SpeechText.chunks("嗯！今天的天气真不错，适合出去走走。我们下午三点出发吧？记得带伞……以防万一。")
+    check(parts == ["嗯！今天的天气真不错，适合出去走走。", "我们下午三点出发吧？记得带伞……以防万一。"], "Speech chunks: short first piece (\(parts))")
+    let commas = SpeechText.chunks(String(repeating: "这是一个没有句号但是有逗号的长句子，", count: 6), first: 40, size: 90)
+    check(commas.count >= 2 && commas[0].count <= 40 && commas.dropFirst().allSatisfy { $0.count <= 90 } && commas[0].hasSuffix("，"),
+          "Speech chunks: long sentences split after a comma (\(commas.map { $0.count }))")
+    check(SpeechText.chunks(String(repeating: "长", count: 100), first: 40, size: 90).map { $0.count } == [40, 60], "Speech chunks: hard split")
+    check(SpeechText.chunks("Hello there. How are you? Fine.", first: 15, size: 40) == ["Hello there.", "How are you? Fine."],
+          "Speech chunks: English sentences (\(SpeechText.chunks("Hello there. How are you? Fine.", first: 15, size: 40)))")
+    check(SpeechText.chunks("“好！”他说。") == ["“好！”他说。"] && SpeechText.chunks("") == [], "Speech chunks: quotes and empty text")
+    check(SpeechText.chunks("你好").joined() == "你好", "Speech chunks: text without a sentence end")
     check(SpeechText.language(of: "好的，OK") == "zh-CN" && SpeechText.language(of: "Hello there") == "en-US"
           && SpeechText.language(of: "こんにちは、元気？") == "ja-JP" && SpeechText.language(of: "안녕하세요") == "ko-KR", "Speech language")
 
@@ -603,11 +820,116 @@ do {
           "Cloud speech tone for gpt-4o")
     check(CloudSpeech.errorMessage(Data(#"{"error":{"message":"Invalid token"}}"#.utf8), status: 401) == "HTTP 401: Invalid token"
           && CloudSpeech.errorMessage(Data(#"{"message":"余额不足"}"#.utf8), status: 403) == "HTTP 403: 余额不足"
-          && CloudSpeech.errorMessage(Data("oops".utf8), status: 500) == "HTTP 500", "Cloud speech errors")
+          && CloudSpeech.errorMessage(Data("Invalid token".utf8), status: 401) == "HTTP 401: Invalid token"
+          && CloudSpeech.errorMessage(Data("<html><body>Bad gateway</body></html>".utf8), status: 502) == "HTTP 502", "Cloud speech errors")
 
+    check(CloudSpeechBalance.endpoint(baseURL: CloudSpeech.siliconFlowURL)?.absoluteString == "https://api.siliconflow.cn/v1/user/info"
+          && CloudSpeechBalance.endpoint(baseURL: "https://api.siliconflow.com/v1/audio/speech")?.absoluteString == "https://api.siliconflow.com/v1/user/info",
+          "Speech balance endpoint")
+    check(CloudSpeechBalance.endpoint(baseURL: "https://api.openai.com/v1") == nil && CloudSpeechBalance.endpoint(baseURL: "") == nil,
+          "No speech balance for other services")
+    check(CloudSpeechBalance.currency(baseURL: CloudSpeech.siliconFlowURL) == "CNY" && CloudSpeechBalance.currency(baseURL: "https://api.siliconflow.com/v1") == "USD"
+          && CloudSpeechBalance.console(baseURL: "https://api.siliconflow.com/v1")?.host == "cloud.siliconflow.com", "Speech balance currency and console")
+    let info = #"{"code":20000,"message":"OK","status":true,"data":{"id":"u","isAdmin":false,"balance":"0.88","status":"normal","chargeBalance":"88.00","totalBalance":"88.88"}}"#
+    let sb = CloudSpeechBalance.parse(Data(info.utf8), currency: "CNY")
+    check(sb?.total == 88.88 && sb?.granted == 0.88 && sb?.toppedUp == 88 && sb?.short == "¥88.88", "Speech balance parsing (\(sb?.short ?? "nil"))")
+    check(sb?.detail.contains("¥0.88") == true && sb?.detail.contains("¥88.00") == true, "Speech balance detail (\(sb?.detail ?? "nil"))")
+    check(CloudSpeechBalance.parse(Data(#"{"data":{"balance":1.5,"chargeBalance":2}}"#.utf8), currency: "USD")?.short == "$3.50",
+          "Speech balance from numbers without a total")
+    check(CloudSpeechBalance.parse(Data("Invalid token".utf8), currency: "CNY") == nil
+          && CloudSpeechBalance.parse(Data(#"{"code":40001,"data":{"id":"u"}}"#.utf8), currency: "CNY") == nil, "Speech balance absent")
+    let invalid = Data(#"{"code":30014,"data":null,"message":"Token is invalid."}"#.utf8)  // SiliconFlow's answer to a wrong key
+    check(CloudSpeechBalance.parse(invalid, currency: "CNY") == nil && CloudSpeech.errorMessage(invalid, status: 401) == "HTTP 401: Token is invalid.",
+          "Speech balance with a wrong key")
+    let gone = Data(#"{"code":20092,"message":"This endpoint is deprecated and is no longer available.","data":null}"#.utf8)
+    check(CloudSpeechBalance.retired(gone, status: 410) && CloudSpeechBalance.retired(gone, status: 200) && CloudSpeechBalance.retired(Data(), status: 410)
+          && !CloudSpeechBalance.retired(invalid, status: 401) && !CloudSpeechBalance.retired(Data(info.utf8), status: 200), "Retired speech balance endpoint")
+
+    let cacheName = CloudSpeechCache.name(text: "你好", model: CloudSpeech.siliconFlowModel, voice: CloudSpeech.siliconFlowVoice, speed: 1,
+                                          baseURL: CloudSpeech.siliconFlowURL)
+    check(cacheName.count == 68 && cacheName.hasSuffix(".mp3")
+          && cacheName == CloudSpeechCache.name(text: "你好", model: " FunAudioLLM/CosyVoice2-0.5B", voice: CloudSpeech.siliconFlowVoice,
+                                                speed: 1.0001, baseURL: "https://API.siliconflow.cn/v1/"), "Voice cache: stable names")
+    check(Set([cacheName,
+               CloudSpeechCache.name(text: "你好！", model: CloudSpeech.siliconFlowModel, voice: CloudSpeech.siliconFlowVoice, speed: 1, baseURL: CloudSpeech.siliconFlowURL),
+               CloudSpeechCache.name(text: "你好", model: CloudSpeech.siliconFlowModel, voice: "FunAudioLLM/CosyVoice2-0.5B:claire", speed: 1, baseURL: CloudSpeech.siliconFlowURL),
+               CloudSpeechCache.name(text: "你好", model: CloudSpeech.siliconFlowModel, voice: CloudSpeech.siliconFlowVoice, speed: 1.2, baseURL: CloudSpeech.siliconFlowURL),
+               CloudSpeechCache.name(text: "你好", model: CloudSpeech.siliconFlowModel, voice: CloudSpeech.siliconFlowVoice, speed: 1, baseURL: "https://api.openai.com/v1"),
+              ]).count == 5, "Voice cache: text, voice, rate and service change the name")
+    let day = Date(timeIntervalSince1970: 1_800_000_000)
+    let files = (0..<10).map { CloudSpeechCache.File(name: "f\($0)", size: 10, used: day.addingTimeInterval(Double($0))) }
+    check(CloudSpeechCache.evictions(files, limit: 100).isEmpty, "Voice cache: nothing to evict within the limit")
+    check(CloudSpeechCache.evictions(files.shuffled(), limit: 80) == ["f0", "f1", "f2", "f3"], "Voice cache: least recently used first, down to 80%")
     var queue = SpeechQueue<Int>(capacity: 2)
     check(queue.push(1).isEmpty && queue.push(2).isEmpty && queue.push(3) == [1], "Speech queue drops the oldest")
     check(queue.pop() == 2 && queue.removeAll() == [3] && queue.pop() == nil && queue.isEmpty, "Speech queue order and clearing")
+}
+
+// MARK: Music detection
+
+do {
+    check(SoundSource.of(bundleID: "com.apple.Music") == .music && SoundSource.of(bundleID: "com.netease.163music") == .music
+          && SoundSource.of(bundleID: "com.tencent.QQMusicMac") == .music && SoundSource.of(bundleID: "com.spotify.client") == .music,
+          "Music players count as music")
+    check(SoundSource.of(bundleID: "com.tencent.xinWeChat") == .ignored && SoundSource.of(bundleID: "com.tencent.qq") == .ignored
+          && SoundSource.of(bundleID: "com.alibaba.DingTalkMac") == .ignored && SoundSource.of(bundleID: "com.tencent.meeting") == .ignored,
+          "Chats and calls never count")
+    check(SoundSource.of(bundleID: "com.colliderli.iina") == .ignored && SoundSource.of(bundleID: "com.youku.mac") == .ignored
+          && SoundSource.of(bundleID: "com.apple.QuickTimePlayerX") == .ignored && SoundSource.of(bundleID: "com.apple.TV") == .ignored,
+          "Video players never count")
+    check(SoundSource.of(bundleID: "com.apple.notificationcenterui") == .ignored
+          && SoundSource.of(bundleID: "com.apple.audio.SystemSoundServer-OSX") == .ignored, "System sounds never count")
+    check(SoundSource.of(bundleID: "com.apple.Safari") == .undecided && SoundSource.of(bundleID: "com.apple.WebKit.GPU") == .undecided
+          && SoundSource.of(bundleID: "com.google.Chrome") == .undecided && SoundSource.of(bundleID: nil) == .undecided,
+          "Browsers and unknown players are judged by their sound")
+
+    typealias W = MusicJudge.Window
+    let song = W(music: 0.7, speech: 0.02), talk = W(music: 0.05, speech: 0.98)
+    let narration = W(music: 0.67, speech: 0.97, singing: 0.02), vocals = W(music: 0.55, speech: 0.6, singing: 0.4)
+    check(MusicJudge.counts(song) && MusicJudge.counts(vocals) && !MusicJudge.counts(talk) && !MusicJudge.counts(narration)
+          && !MusicJudge.counts(W(music: 0.32)), "Music windows: songs and sung vocals, not talk or narration over music")
+    var judge = MusicJudge()
+    check(!judge.add(song) && !judge.add(song) && judge.add(song), "Music after 3 music windows")
+    check(judge.add(talk) && judge.add(talk) && judge.add(talk) && !judge.add(talk), "Music ends after 4 of 5 windows are not music")
+    var ding = MusicJudge()
+    check(!ding.add(W(music: 0.44)) && !ding.add(W()) && !ding.add(W()) && !ding.add(W()), "A notification sound is not music")
+    var video = MusicJudge()
+    check([narration, narration, song, narration, narration, narration].allSatisfy { !video.add($0) }, "Narration over music is not music")
+    judge.reset()
+    check(!judge.isMusic, "Judge reset")
+}
+
+// MARK: Reaching for the pointer
+
+do {
+    let stage = CGRect(x: 100, y: 0, width: 200, height: 300)
+    let zone = PointerTease.zone(stage: stage)
+    check(zone == CGRect(x: 130, y: 165, width: 140, height: 255), "Tease zone above the upper body (\(zone))")
+    let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    func run(_ tease: inout PointerTease, from: Double, to: Double, at point: (Double) -> CGPoint, allowed: Bool = true) -> [Double] {
+        var grabs: [Double] = []
+        for i in stride(from: from, to: to, by: 1.0 / 30) {
+            if tease.update(pointer: point(i), zone: zone, now: t0.addingTimeInterval(i), allowed: allowed) { grabs.append(i) }
+        }
+        return grabs
+    }
+    let wiggle: (Double) -> CGPoint = { CGPoint(x: 200 + 30 * sin($0 * 6), y: 300) }
+    var tease = PointerTease()
+    let grabs = run(&tease, from: 0, to: 3, at: wiggle)
+    // The pointer slows down at the turns of the wiggle (under 2 pt a frame), which do not count: about 1 s in all.
+    check(grabs.count == 1 && grabs[0] >= 0.8 && grabs[0] <= 1.2, "Grab after 0.8 s of play above the head (\(grabs))")
+    check(run(&tease, from: 3, to: 20, at: wiggle).isEmpty, "No second grab within the cooldown")
+    check(run(&tease, from: 26, to: 28, at: wiggle).count == 1, "Another grab after the cooldown")
+    var still = PointerTease()
+    check(run(&still, from: 0, to: 5, at: { _ in CGPoint(x: 200, y: 300) }).isEmpty, "A still pointer is no play")
+    var away = PointerTease()
+    check(run(&away, from: 0, to: 5, at: { CGPoint(x: 600 + 30 * sin($0 * 6), y: 300) }).isEmpty, "Play elsewhere does not count")
+    var held = PointerTease()
+    check(run(&held, from: 0, to: 3, at: wiggle, allowed: false).isEmpty, "Nothing while not allowed (dragged, asleep)")
+    var brief = PointerTease()
+    _ = run(&brief, from: 0, to: 0.5, at: wiggle)
+    _ = run(&brief, from: 0.5, to: 1.0, at: { CGPoint(x: 600 + 30 * sin($0 * 6), y: 300) })
+    check(brief.teased < 0.05, "Time outside the zone takes the play back (\(brief.teased))")
 }
 
 print(failures == 0 ? "All \(checks) checks passed." : "\(failures) of \(checks) checks failed.")

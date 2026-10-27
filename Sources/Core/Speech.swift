@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// The words of a bubble as they are spoken (Settings → General → Voice): Markdown markup, code, formulas, tables,
@@ -73,6 +74,44 @@ enum SpeechText {
             }
         }
         return (String(chars[..<cut]).trimmingCharacters(in: .whitespaces), true)
+    }
+
+    /// Pieces of `text` for a speech service, each ending at a sentence end where possible: the first at most `first`
+    /// characters, so that the voice starts soon, the others at most `size`. A sentence longer than that is split
+    /// after a comma, otherwise at the limit.
+    static func chunks(_ text: String, first: Int = 24, size: Int = 80) -> [String] {
+        let ends: Set<Character> = ["。", "！", "？", "!", "?", "；", ";", "…"]
+        var sentences: [String] = [], current = ""
+        let chars = Array(text)
+        for (i, c) in chars.enumerated() {
+            current.append(c)
+            let next = i + 1 < chars.count ? chars[i + 1] : nil
+            let end = ends.contains(c) || (c == "." && (next == nil || next == " "))
+            // Runs of closing marks ("！？", "……", "。”") stay with their sentence.
+            if end, let next, ends.contains(next) || "”’）)」』\"".contains(next) { continue }
+            if end || next == nil {
+                let t = current.trimmingCharacters(in: .whitespaces)
+                if !t.isEmpty { sentences.append(t) }
+                current = ""
+            }
+        }
+        var pieces: [String] = [], piece = ""
+        func limit() -> Int { pieces.isEmpty ? first : size }
+        for sentence in sentences {
+            if !piece.isEmpty, piece.count + sentence.count > limit() {
+                pieces.append(piece)
+                piece = ""
+            }
+            piece += (piece.last?.isASCII == true ? " " : "") + sentence
+            while piece.count > limit() {
+                let chars = Array(piece), l = limit()
+                let cut = (chars[..<l].lastIndex { "，,、：:".contains($0) }).map { $0 + 1 } ?? l
+                pieces.append(String(chars[..<cut]).trimmingCharacters(in: .whitespaces))
+                piece = String(chars[cut...]).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        if !piece.isEmpty { pieces.append(piece) }
+        return pieces.filter { !$0.isEmpty }
     }
 
     /// The BCP 47 language of the voice for `text`: Japanese with kana, Korean with Hangul, Chinese with Han
@@ -196,13 +235,107 @@ enum CloudSpeech {
         return .object(body)
     }
 
-    /// The service's explanation of a failed request, or the HTTP status.
+    /// The service's explanation of a failed request (a JSON error or a short plain-text body), or the HTTP status.
     static func errorMessage(_ data: Data, status: Int) -> String {
         if let json = try? JSON.parse(data) {
             let message = json["error"]?["message"]?.string ?? json["error"]?.string ?? json["message"]?.string ?? json["detail"]?.string
             if let message, !message.isEmpty { return "HTTP \(status): \(message)" }
+        } else if let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty, text.count <= 160, !text.hasPrefix("<") {
+            return "HTTP \(status): \(text)"
         }
         return "HTTP \(status)"
+    }
+}
+
+/// The local store of the cloud voice's audio (AppPaths.voiceCacheDir): each piece is kept under a name derived from
+/// everything that decides its sound, so that what the pet says often is played from disk instead of being requested
+/// (and paid for) again. Beyond `limit` bytes, the least recently used pieces go until 80% of it remain.
+enum CloudSpeechCache {
+    struct File: Equatable {
+        var name: String
+        var size: Int
+        var used: Date
+    }
+
+    static let limit = 50 * 1024 * 1024
+
+    /// SHA-256 of the service's host, model, voice, rate and text.
+    static func name(text: String, model: String, voice: String, speed: Double, baseURL: String) -> String {
+        let host = URL(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines))?.host?.lowercased() ?? ""
+        let fields = [host, model.trimmingCharacters(in: .whitespaces), voice.trimmingCharacters(in: .whitespaces),
+                      String(format: "%.2f", speed), text]
+        return SHA256.hash(data: Data(fields.joined(separator: "\n").utf8)).map { String(format: "%02x", $0) }.joined() + ".mp3"
+    }
+
+    /// The files to delete so that the store fits: none while it is within `limit`.
+    static func evictions(_ files: [File], limit: Int = limit) -> [String] {
+        var total = files.reduce(0) { $0 + $1.size }
+        guard total > limit else { return [] }
+        var out: [String] = []
+        for f in files.sorted(by: { $0.used < $1.used }) where total > limit * 4 / 5 {
+            out.append(f.name)
+            total -= f.size
+        }
+        return out
+    }
+}
+
+/// The account balance behind a SiliconFlow key (`GET /v1/user/info`): the granted part ("balance") and the topped-up
+/// part ("chargeBalance") make up the total ("totalBalance"); yuan on siliconflow.cn, dollars on siliconflow.com.
+struct CloudSpeechBalance: Equatable {
+    var total: Double
+    var granted: Double
+    var toppedUp: Double
+    var currency: String
+    var fetched: Date
+
+    /// The balance endpoint on the host of a SiliconFlow base URL; nil for services without one (OpenAI and others).
+    static func endpoint(baseURL: String) -> URL? {
+        guard let url = URL(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines)), let host = url.host?.lowercased(),
+              host.hasSuffix("siliconflow.cn") || host.hasSuffix("siliconflow.com") else { return nil }
+        var c = URLComponents()
+        c.scheme = url.scheme ?? "https"
+        c.host = host
+        c.port = url.port
+        c.path = "/v1/user/info"
+        return c.url
+    }
+
+    /// "USD" on the international site (siliconflow.com), "CNY" otherwise.
+    static func currency(baseURL: String) -> String {
+        endpoint(baseURL: baseURL)?.host?.hasSuffix("siliconflow.com") == true ? "USD" : "CNY"
+    }
+
+    /// The SiliconFlow console of the same site, where the balance is topped up.
+    static func console(baseURL: String) -> URL? {
+        URL(string: currency(baseURL: baseURL) == "USD" ? "https://cloud.siliconflow.com" : "https://cloud.siliconflow.cn")
+    }
+
+    /// The balance in a `/v1/user/info` answer (amounts as strings or numbers); nil when there is none.
+    static func parse(_ data: Data, currency: String, fetched: Date = Date()) -> CloudSpeechBalance? {
+        guard let info = (try? JSON.parse(data))?["data"], info.object != nil else { return nil }
+        func amount(_ key: String) -> Double? {
+            info[key]?.string.flatMap { Double($0.trimmingCharacters(in: .whitespaces)) } ?? info[key]?.double
+        }
+        let granted = amount("balance"), toppedUp = amount("chargeBalance")
+        guard let total = amount("totalBalance") ?? granted.map({ $0 + (toppedUp ?? 0) }) ?? toppedUp else { return nil }
+        return CloudSpeechBalance(total: total, granted: granted ?? 0, toppedUp: toppedUp ?? 0, currency: currency, fetched: fetched)
+    }
+
+    /// Whether the answer says the endpoint has been retired: SiliconFlow answers 410 ("This endpoint is deprecated",
+    /// code 20092) since August 2026 and has named no replacement, so the balance is only shown in its console.
+    static func retired(_ data: Data, status: Int) -> Bool {
+        status == 410 || (try? JSON.parse(data))?["code"]?.int == 20092
+    }
+
+    /// "¥88.88".
+    var short: String { DeepSeekBalance.money(total, currency) }
+
+    /// "¥88.88（赠送 ¥0.88 · 充值 ¥88.00）".
+    var detail: String {
+        tr("\(short)（赠送 \(DeepSeekBalance.money(granted, currency)) · 充值 \(DeepSeekBalance.money(toppedUp, currency))）",
+           "\(short) (granted \(DeepSeekBalance.money(granted, currency)) · topped up \(DeepSeekBalance.money(toppedUp, currency)))")
     }
 }
 

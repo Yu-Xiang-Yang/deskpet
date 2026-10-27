@@ -22,7 +22,7 @@
 
   // Semantic motions and how long the one-shot ones last (ms); sleepy and think stay until replaced.
   const MOTIONS = ["idle", "happy", "wave", "nod", "shake", "think", "surprised", "sleepy", "shy", "eat", "sad",
-                   "swipe", "sniff", "perk", "stretch", "groom", "swish"];
+                   "swipe", "sniff", "perk", "stretch", "groom", "swish", "grab"];
   const MOTION_MS = { happy: 1800, wave: 2200, nod: 1100, shake: 1100, surprised: 1500, shy: 2600, eat: 4200, sad: 3200 };
 
   let mode = "none"; // "live2d" once a model is shown
@@ -112,6 +112,16 @@
       [P.angleZ, [[0, 0], [0.4, 10], [1.6, 14], [2.6, 8], [3.0, 0]]], [P.angleY, hold(0, 3.0, -8, 0, 0.4)],
       [P.earL, hold(0, 3.0, -0.3)], [P.earR, hold(0, 3.0, -0.3)],
     ] },
+    // Reaching for the pointer: up on the hind legs with both forepaws raised, batting at it in turn; the head is left
+    // to the gaze, so that the eyes stay on the pointer. Ears forward, eyes wide, the tail twitching.
+    grab: { s: 2.8, parts: FORELEGS, tracks: [
+      [P.bodyY, hold(0, 2.8, 14, 0, 0.35)],
+      [P.pawR, [[0, 0], [0.35, -2.5], [0.65, -1.7], [0.95, -2.5], [1.25, -1.7], [1.55, -2.5], [1.85, -1.7], [2.15, -2.5], [2.55, -0.8], [2.8, 0]]],
+      [P.pawL, [[0, 0], [0.45, -2], [0.8, -2], [1.1, -1.3], [1.4, -2], [1.7, -1.3], [2.0, -2], [2.3, -1.3], [2.6, -0.6], [2.8, 0]]],
+      [P.earL, hold(0, 2.8, 1, 0, 0.15)], [P.earR, hold(0, 2.8, 1, 0, 0.15)],
+      [P.eyeL, hold(0, 2.8, 1, 1)], [P.eyeR, hold(0, 2.8, 1, 1)], [P.mouth, hold(0.3, 2.4, 0.25)],
+      [P.tail, alternate(0.2, 2.6, 0.22, 0.95, 0.35)],
+    ] },
     // Mildly put out: the tail swishes, the ears turn back, the eyes narrow and look away.
     swish: { s: 2.2, tracks: [
       [P.tail, alternate(0.15, 2.0, 0.18, 0.9, 0.1)], [P.tailAngry, hold(0, 2.2, 1)],
@@ -121,7 +131,8 @@
   };
   for (const [name, a] of Object.entries(ACTIONS)) MOTION_MS[name] = Math.round(a.s * 1000);
   // A sprite character without pictures of its own for an action shows these (its states, see character.json).
-  const ACTION_PICTURES = { swipe: "cheer", sniff: "think", perk: "surprised", stretch: "happy", groom: "shy", swish: "pout" };
+  const ACTION_PICTURES = { swipe: "cheer", sniff: "think", perk: "surprised", stretch: "happy", groom: "shy", swish: "pout",
+                            grab: "cheer" };
 
   let action = null;  // { tracks, parts, s, t0, end }: the action playing on the Live2D model
 
@@ -867,6 +878,9 @@
                         sy += 0.05 * up - 0.05 * down; sx += 0.04 * down; break; }
       case "groom": rot += 3 * Math.sin(TAU * 1.2 * e) * within(3.2); dy += 2 * Math.abs(Math.sin(TAU * 3.3 * e)) * within(3.2); break;
       case "swish": rot += 2 * Math.sin(TAU * 2.8 * e) * within(2.2); break;
+      // Up on tiptoe towards the pointer (the lean follows it), bobbing a little with each grab.
+      case "grab": { const up = Math.max(0, Math.min(1, e * 4, (2.8 - e) / 0.3));
+                     sy += 0.05 * up; sx -= 0.02 * up; dy -= (6 + 4 * Math.abs(Math.sin(TAU * 1.7 * e))) * up; break; }
     }
     const g = grooveFrame();
     if (g) { rot += g.tilt * 0.3; dx += g.body * 1.4; dy -= g.nod * 0.5; sy += 0.01 * g.level * Math.max(0, g.nod / 8); }

@@ -7,10 +7,12 @@ final class SettingsWindowController {
     var onModelChange: (() -> Void)?
     var onTestReminders: (() -> Void)?
     var onRunDailyTasks: (() -> Void)?
+    var onDigestMemories: ((@escaping (String) -> Void) -> Void)?
     var onCheckWeather: ((@escaping (String) -> Void) -> Void)?
     var onCheckCalendar: ((@escaping (String) -> Void) -> Void)?
     var onPreviewMeow: (() -> Void)?
     var onPreviewSpeech: ((@escaping (String) -> Void) -> Void)?
+    var onCheckSpeechBalance: ((@escaping (String) -> Void) -> Void)?
     var onInstallSaver: (() -> String)?
 
     func show(tab: SettingsView.Tab = .general) {
@@ -20,10 +22,12 @@ final class SettingsWindowController {
                 onModelChange: { [weak self] in self?.onModelChange?() },
                 onTestReminders: { [weak self] in self?.onTestReminders?() },
                 onRunDailyTasks: { [weak self] in self?.onRunDailyTasks?() },
+                onDigestMemories: { [weak self] report in self?.onDigestMemories?(report) },
                 onCheckWeather: { [weak self] report in self?.onCheckWeather?(report) },
                 onCheckCalendar: { [weak self] report in self?.onCheckCalendar?(report) },
                 onPreviewMeow: { [weak self] in self?.onPreviewMeow?() },
                 onPreviewSpeech: { [weak self] outcome in self?.onPreviewSpeech?(outcome) },
+                onCheckSpeechBalance: { [weak self] report in self?.onCheckSpeechBalance?(report) },
                 onInstallSaver: { [weak self] in self?.onInstallSaver?() ?? "" }))
             let w = NSWindow(contentViewController: hosting)
             w.title = tr("桌宠设置", "DeskPet Settings")
@@ -45,24 +49,37 @@ struct SettingsView: View {
     var onModelChange: () -> Void
     var onTestReminders: () -> Void
     var onRunDailyTasks: () -> Void
+    var onDigestMemories: (@escaping (String) -> Void) -> Void
     var onCheckWeather: (@escaping (String) -> Void) -> Void
     var onCheckCalendar: (@escaping (String) -> Void) -> Void
     var onPreviewMeow: () -> Void
     var onPreviewSpeech: (@escaping (String) -> Void) -> Void
+    var onCheckSpeechBalance: (@escaping (String) -> Void) -> Void
     var onInstallSaver: () -> String
     @State private var saverResult = ""
     @State private var voices = Speaker.installedVoices
     @State private var speechKey = Keychain.hasValue(account: "speech") ? (Keychain.read(account: "speech") ?? "") : ""
     @State private var speechResult = ""
+    @State private var speechBalance = ""
+    @State private var voiceCache = VoiceCache.summary
 
     @ObservedObject private var memory = MemoryStore.shared
+    @ObservedObject private var mind = MindState.shared
+    @ObservedObject private var screen = ScreenWatcher.shared
+    @State private var lookResult = ""
+    @State private var screenPermitted = ScreenWatcher.permitted
     @State private var newMemory = ""
     @State private var confirmClear = false
+    @State private var digestResult = ""
     @State private var weatherResult = ""
     @State private var calendarResult = ""
 
     @State private var anthropicKey = Keychain.hasValue(account: "anthropic") ? (Keychain.read(account: "anthropic") ?? "") : ""
     @State private var openaiKey = Keychain.hasValue(account: "openai") ? (Keychain.read(account: "openai") ?? "") : ""
+    @State private var adminKey = Keychain.hasValue(account: "anthropic-admin") ? (Keychain.read(account: "anthropic-admin") ?? "") : ""
+    @State private var creditInput = ""
+    @State private var costResult = ""
+    @ObservedObject private var claudeCost = ClaudeCostWatcher.shared
     @State private var testResult = ""
     @State private var testing = false
     @State private var mealTimes = AppSettings.shared.reminders.mealTimes.joined(separator: ", ")
@@ -228,13 +245,26 @@ struct SettingsView: View {
         return "\(v.name)（\(v.language) · \(quality)）"
     }
 
+    private func checkSpeechBalance() {
+        guard !speechKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            speechBalance = tr("填写 API key 后显示", "Shown once a key is entered")
+            return
+        }
+        speechBalance = tr("查询中…", "Checking…")
+        onCheckSpeechBalance { speechBalance = $0 }
+    }
+
     private var voiceSection: some View {
         Section(tr("语音", "Voice")) {
             Toggle(tr("朗读气泡", "Read bubbles aloud"), isOn: $settings.speech)
-            Text(tr("桌宠说的每个气泡都会读出来（科研回答只读开头约 \(Speaker.answerLimit) 字），说话时嘴巴跟着动；你发消息时它会停下。",
-                    "Every bubble of the pet is read aloud (research answers up to about \(Speaker.answerLimit) characters), with the mouth moving; it stops when you send a message."))
+            Text(tr("桌宠说的气泡会读出来，气泡随声音一起出现，说话时嘴巴跟着动；你发消息时它会停下。执行代理与 Claude Code 的交办、汇报和报错只显示不读。",
+                    "The pet's bubbles are read aloud and appear with their voice, the mouth moving; it stops when you send a message. The agent's and Claude Code's hand-overs, reports and errors are shown, not read."))
                 .font(.caption).foregroundStyle(.secondary)
             if settings.speech {
+                Picker(tr("长文不读", "Long text"), selection: $settings.speechMaxChars) {
+                    ForEach([60, 120, 200, 400], id: \.self) { Text(tr("超过 \($0) 字只显示", "Over \($0) characters: shown only")).tag($0) }
+                    Text(tr("不限（科研回答只读开头约 \(Speaker.answerLimit) 字）", "No limit (research answers up to about \(Speaker.answerLimit) characters)")).tag(0)
+                }
                 Picker(tr("声音来源", "Voice source"), selection: $settings.speechEngine) {
                     ForEach(SpeechEngine.allCases) { Text($0.title).tag($0) }
                 }
@@ -270,7 +300,32 @@ struct SettingsView: View {
                     TextField(tr("模型", "Model"), text: $settings.cloudSpeechModel)
                     TextField(tr("声音", "Voice"), text: $settings.cloudSpeechVoice)
                     SecureField("API key", text: $speechKey)
-                        .onChange(of: speechKey) { _, key in Keychain.write(account: "speech", value: key.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                        .onChange(of: speechKey) { _, key in
+                            Keychain.write(account: "speech", value: key.trimmingCharacters(in: .whitespacesAndNewlines))
+                            speechBalance = key.isEmpty ? tr("填写 API key 后显示", "Shown once a key is entered") : tr("点“刷新”查询", "Refresh to check")
+                        }
+                    HStack {
+                        Text(tr("本地缓存", "Saved on this Mac"))
+                        Spacer()
+                        Text(voiceCache).foregroundStyle(.secondary)
+                        Button(tr("清空", "Clear")) { VoiceCache.clear(); voiceCache = VoiceCache.summary }
+                    }
+                    .onAppear { voiceCache = VoiceCache.summary }
+                    Text(tr("合成过的语音按“文字、模型、声音、语速”保存在本机（至多 50 MB，先删最久未用的），同一句话再说时直接播放，不再请求、不再计费，没网也能读。",
+                            "Spoken pieces are saved on this Mac by text, model, voice and rate (up to 50 MB, least recently used first out); the same line plays from disk next time, without a request or a charge, also offline."))
+                        .font(.caption).foregroundStyle(.secondary)
+                    if CloudSpeechBalance.endpoint(baseURL: settings.cloudSpeechBaseURL) != nil {
+                        HStack {
+                            Text(tr("余额", "Balance"))
+                            Spacer()
+                            Text(speechBalance).foregroundStyle(.secondary).lineLimit(2)
+                            Button(tr("刷新", "Refresh")) { checkSpeechBalance() }
+                            Button(tr("控制台", "Console")) {
+                                if let url = CloudSpeechBalance.console(baseURL: settings.cloudSpeechBaseURL) { NSWorkspace.shared.open(url) }
+                            }
+                        }
+                        .onAppear { checkSpeechBalance() }
+                    }
                     Text(tr("每个气泡的文字会发送到该服务合成语音，按量计费；未填 key 或请求失败时改用系统语音。硅基流动的预设声音写作“模型:名字”：diana 欢快女声、claire 温柔女声、anna 沉稳女声、bella 激情女声，alex、benjamin、charles、david 为男声。",
                             "The text of every bubble is sent to this service to be spoken, billed by use; without a key or when a request fails, the system voice speaks instead. SiliconFlow's preset voices are written \"model:name\": diana cheerful, claire gentle, anna calm, bella passionate (female); alex, benjamin, charles, david (male)."))
                         .font(.caption).foregroundStyle(.secondary)
@@ -381,21 +436,72 @@ struct SettingsView: View {
                         .onSubmit(addMemory)
                     Button(tr("添加", "Add"), action: addMemory).disabled(newMemory.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
+                HStack {
+                    Button(tr("立即整理最近的对话", "Consolidate recent chats now")) {
+                        digestResult = tr("整理中…", "Consolidating…")
+                        onDigestMemories { digestResult = $0 }
+                    }
+                    .disabled(!settings.autoMemory)
+                    Text(digestResult).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
             } footer: {
-                Text(tr("记忆保存在本机，并作为背景随每次请求发送给所选的模型服务。对桌宠说“忘掉……”也可删除相关记忆。",
-                        "Memories stay on this Mac and are sent as background with each request to the selected model provider. Saying “forget …” to the pet removes matching memories."))
+                Text(tr("记忆分为三层：长期事实（偏好、过敏、重要日期等，对话中随时记下）、经历（每段对话结束约 10 分钟后整理出当天发生的事）与印象（从多段经历中归纳）。手动添加的记忆与重要的事实始终作为背景；其余记忆按与当前话题的相关程度、重要程度与新近程度检索。经历与印象若不再被提起会逐渐淡忘，每被提起一次记得更久。记忆保存在本机，所选的模型服务会收到与话题相关的部分。对桌宠说“忘掉……”也可删除相关记忆。",
+                        "Memories come in three layers: facts (preferences, allergies, dates; noted during chats), episodes (what happened, consolidated about 10 minutes after a conversation) and impressions (drawn from several episodes). Manual entries and important facts are always in the background; the rest are recalled by relevance to the topic, importance and recency. Episodes and impressions fade unless they come up again; each recall makes them last longer. Memories stay on this Mac; the model service receives those relevant to the topic. Saying “forget …” to the pet removes matching memories."))
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section(tr("共 \(memory.items.count) 条", "\(memory.items.count) memories")) {
+            memorySection(.fact, title: tr("长期事实", "Facts"))
+            memorySection(.episode, title: tr("经历", "Episodes"))
+            memorySection(.insight, title: tr("印象", "Impressions"))
+            Section {
                 if memory.items.isEmpty {
                     Text(tr("还没有记忆。", "No memories yet.")).foregroundStyle(.secondary)
+                } else {
+                    Button(tr("清空全部记忆…", "Clear all memories…"), role: .destructive) { confirmClear = true }
+                        .confirmationDialog(tr("确定清空全部 \(memory.items.count) 条记忆？此操作无法撤销。", "Clear all \(memory.items.count) memories? This cannot be undone."),
+                                            isPresented: $confirmClear) {
+                            Button(tr("清空", "Clear"), role: .destructive) { memory.removeAll() }
+                        }
                 }
-                ForEach(memory.items) { m in
+            } footer: {
+                if mind.faded > 0 {
+                    Text(tr("已淡忘 \(mind.faded) 条久未提起的经历与印象。", "\(mind.faded) episodes and impressions faded away."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Section(tr("最近的念头", "Recent thoughts")) {
+                if mind.log.isEmpty {
+                    Text(tr("还没有念头。主动闲聊开启后，桌宠会不时想一想，只有念头足够强烈时才开口。", "No thoughts yet. With spontaneous remarks on, the pet thinks now and then and speaks only when a thought is strong enough."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(mind.log.prefix(12)) { e in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(timeStamp(e.date) + " · " + triggerTitle(e.trigger)).font(.caption2).foregroundStyle(.secondary)
+                        ForEach(Array(e.thoughts.enumerated()), id: \.offset) { _, t in
+                            Text(t).font(.system(size: 11.5)).foregroundStyle(.secondary).textSelection(.enabled)
+                        }
+                        if let said = e.said {
+                            Text(tr("说出口：", "Said: ") + said).font(.system(size: 12.5)).textSelection(.enabled)
+                        } else if let note = e.note {
+                            Text(note).font(.system(size: 12)).foregroundStyle(.secondary).textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    /// The memories of one kind, newest first, with their day, importance, retention and a pending follow-up.
+    @ViewBuilder
+    private func memorySection(_ kind: MemoryKind, title: String) -> some View {
+        let items = memory.items.filter { $0.kind == kind }.sorted { $0.created > $1.created }
+        if !items.isEmpty {
+            Section(title + tr("（\(items.count) 条）", " (\(items.count))")) {
+                ForEach(items) { m in
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(m.text).font(.system(size: 12.5)).textSelection(.enabled)
-                            Text(ReminderRules.dayStamp(m.created, .current) + (m.source == "manual" ? tr(" · 手动添加", " · added manually") : ""))
-                                .font(.caption2).foregroundStyle(.secondary)
+                            Text(memoryDetail(m)).font(.caption2).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button { memory.remove(m.id) } label: { Image(systemName: "trash") }
@@ -403,16 +509,36 @@ struct SettingsView: View {
                             .help(tr("删除", "Delete"))
                     }
                 }
-                if !memory.items.isEmpty {
-                    Button(tr("清空全部记忆…", "Clear all memories…"), role: .destructive) { confirmClear = true }
-                        .confirmationDialog(tr("确定清空全部 \(memory.items.count) 条记忆？此操作无法撤销。", "Clear all \(memory.items.count) memories? This cannot be undone."),
-                                            isPresented: $confirmClear) {
-                            Button(tr("清空", "Clear"), role: .destructive) { memory.removeAll() }
-                        }
-                }
             }
         }
-        .formStyle(.grouped)
+    }
+
+    private func memoryDetail(_ m: Memory) -> String {
+        var parts = [ReminderRules.dayStamp(m.created, .current)]
+        if m.source == "manual" { parts.append(tr("手动添加", "added manually")) }
+        parts.append(tr("重要度 \(m.importance)", "importance \(m.importance)"))
+        if m.kind != .fact, m.source != "manual" {
+            parts.append(tr("记忆强度 \(Int((m.retention(at: Date()) * 100).rounded()))%", "retention \(Int((m.retention(at: Date()) * 100).rounded()))%"))
+        }
+        if m.recalls > 0 { parts.append(tr("被提起 \(m.recalls) 次", "recalled \(m.recalls)×")) }
+        if let at = m.followUp { parts.append(tr("打算 \(timeStamp(at)) 问问", "to ask about at \(timeStamp(at))")) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func timeStamp(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm"
+        return f.string(from: date)
+    }
+
+    private func triggerTitle(_ trigger: String) -> String {
+        switch trigger {
+        case "idle": return tr("闲时的念头", "Idle thought")
+        case "follow_up": return tr("跟进到期", "Follow-up due")
+        case "returned": return tr("主人回来时", "Owner returned")
+        case "digest": return tr("整理记忆", "Consolidation")
+        default: return trigger
+        }
     }
 
     private func addMemory() {
@@ -428,8 +554,9 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
 
-            if settings.provider == .anthropic {
-                Section("Claude") {
+            // A service is shown when the chat uses it, or when watching the screen does.
+            if settings.provider == .anthropic || (settings.screenAwareness && settings.screenProviderKind == .anthropic) {
+                Section(settings.provider == .anthropic ? "Claude" : tr("Claude（观察屏幕使用）", "Claude (for watching the screen)")) {
                     SecureField("API key", text: $anthropicKey)
                         .onChange(of: anthropicKey) { _, key in Keychain.write(account: "anthropic", value: key.trimmingCharacters(in: .whitespacesAndNewlines)) }
                     TextField(tr("模型", "Model"), text: $settings.anthropicModel)
@@ -438,8 +565,11 @@ struct SettingsView: View {
                             "Default model claude-opus-5-5. Research mode uses the server-side web_search tool plus arXiv and Semantic Scholar search."))
                         .font(.caption).foregroundStyle(.secondary)
                 }
-            } else {
-                Section(tr("OpenAI 兼容接口", "OpenAI-compatible")) {
+                claudeCostSection
+            }
+            if settings.provider == .openai || (settings.screenAwareness && settings.screenProviderKind == .openai) {
+                Section(settings.provider == .openai ? tr("OpenAI 兼容接口", "OpenAI-compatible")
+                        : tr("OpenAI 兼容接口（观察屏幕使用）", "OpenAI-compatible (for watching the screen)")) {
                     Menu(tr("预设", "Presets")) {
                         ForEach(presets, id: \.name) { p in
                             Button(p.name) { settings.openaiBaseURL = p.url; settings.openaiModel = p.model }
@@ -465,6 +595,53 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// The organization's Claude API spending (Admin API) and the balance estimated from the one entered here.
+    private var claudeCostSection: some View {
+        Section {
+            SecureField(tr("Admin API key（sk-ant-admin…，可选）", "Admin API key (sk-ant-admin…, optional)"), text: $adminKey)
+                .onChange(of: adminKey) { _, key in
+                    Keychain.write(account: "anthropic-admin", value: key.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+            HStack {
+                TextField(tr("Console 中显示的当前余额（美元）", "Current balance shown in the Console (USD)"), text: $creditInput)
+                Button(tr("记下", "Save")) {
+                    guard let value = Double(creditInput.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "$", with: "")) else { return }
+                    costResult = tr("查询中…", "Checking…")
+                    claudeCost.setBalance(value) { costResult = $0 }
+                    creditInput = ""
+                }
+                .disabled(adminKey.isEmpty || Double(creditInput.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "$", with: "")) == nil)
+                Link(tr("打开结算页", "Open billing"), destination: URL(string: ClaudeCost.consoleURL)!)
+            }
+            if !adminKey.isEmpty {
+                HStack {
+                    Text(claudeCost.lines.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    Spacer()
+                    Button(tr("刷新", "Refresh")) {
+                        costResult = tr("查询中…", "Checking…")
+                        claudeCost.refresh { result in
+                            if case .failure(let error) = result { costResult = error.localizedDescription } else { costResult = "" }
+                        }
+                    }
+                }
+                if settings.claudeCreditBase > 0 {
+                    Text(tr("余额起点：", "Balance entered: ") + String(format: "$%.2f", settings.claudeCreditBase) + " · "
+                         + timeStamp(Date(timeIntervalSince1970: settings.claudeCreditSince)))
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            if !costResult.isEmpty {
+                Text(costResult).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+        } header: {
+            Text(tr("Claude API 花费", "Claude API spending"))
+        } footer: {
+            Text(tr("Admin API key 由组织账户的管理员在 Claude Console 的 Settings → Admin keys 中创建（个人账户无法创建），只用于查询花费（cost_report：按 UTC 日统计，约 5 分钟延迟），不用于对话。剩余余额没有查询接口：在结算页看到余额后填入并点“记下”，桌宠从中扣除此后的花费作为估算（同一组织其它用途的花费也会扣除）。",
+                    "An Admin API key is created by an organization admin under Settings → Admin keys in the Claude Console (individual accounts cannot create one); it is used only to read spending (cost_report: by UTC day, about 5 minutes behind), never for chats. There is no API for the remaining balance: enter the balance shown on the billing page and press Save, and the pet deducts later spending as an estimate (spending of the organization elsewhere counts too)."))
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 
     private func test() {
@@ -510,16 +687,85 @@ struct SettingsView: View {
                            isOn: $settings.reminders.waterEnabled)
                 }
             }
-            Section(tr("闲聊", "Small talk")) {
+            Section {
                 Stepper(value: $settings.chatterMinutes, in: 0...240, step: 5) {
                     Text(settings.chatterMinutes == 0 ? tr("主动闲聊：关闭", "Spontaneous remarks: off")
+                         : settings.innerThoughts ? tr("主动闲聊：每 \(settings.chatterMinutes) 分钟想一想", "Spontaneous remarks: think every \(settings.chatterMinutes) min")
                          : tr("主动闲聊：每 \(settings.chatterMinutes) 分钟", "Spontaneous remarks every \(settings.chatterMinutes) min"))
                 }
-                Stepper(value: $settings.chatterLLMEvery, in: 0...10) {
-                    Text(settings.chatterLLMEvery == 0 ? tr("闲聊内容：仅本地语料", "Remarks: local phrases only")
-                         : tr("每 \(settings.chatterLLMEvery) 次闲聊由模型生成 1 次", "1 of every \(settings.chatterLLMEvery) remarks written by the model"))
+                Toggle(tr("念头式搭话：先产生念头，足够想说、时机合适时才开口", "Inner thoughts: speak only when a thought is strong enough"), isOn: $settings.innerThoughts)
+                if settings.innerThoughts {
+                    Picker(tr("健谈程度", "Talkativeness"), selection: $settings.talkativeness) {
+                        ForEach(Talkativeness.allCases) { Text($0.title).tag($0) }
+                    }
+                } else {
+                    Stepper(value: $settings.chatterLLMEvery, in: 0...10) {
+                        Text(settings.chatterLLMEvery == 0 ? tr("闲聊内容：仅本地语料", "Remarks: local phrases only")
+                             : tr("每 \(settings.chatterLLMEvery) 次闲聊由模型生成 1 次", "1 of every \(settings.chatterLLMEvery) remarks written by the model"))
+                    }
                 }
+                Toggle(tr("跟进之前聊过的事（如考试、组会结束后问问结果）", "Follow up on things mentioned before (e.g. ask how an exam went)"), isOn: $settings.followUps)
                 Toggle(tr("由模型以角色口吻改写提醒", "Let the model phrase reminders in character"), isOn: $settings.aiReminderWording)
+            } header: {
+                Text(tr("闲聊", "Small talk"))
+            } footer: {
+                Text(tr("念头式搭话每次“想一想”调用一次模型：桌宠根据时间、主人是否在忙、最近的对话与记忆产生几个念头并评估想说的程度，只有超过开口阈值时才说出来；主人连续不回应时会更少开口。跟进在事情结束后、主人在电脑前时进行（8:00–23:00）。最近的念头可在“记忆库”中查看。",
+                        "Each time the pet thinks, the model is called once: it forms a few thoughts from the time, whether you are busy, recent chats and memories, rates how much it wants to say each, and speaks only above the threshold; it speaks less when remarks go unanswered. Follow-ups come after the event while you are at the computer (8:00–23:00). Recent thoughts are listed under Memory."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle(tr("观察屏幕：定时截屏，让桌宠知道你在做什么", "Watch the screen: let the pet know what you are doing"), isOn: $settings.screenAwareness)
+                    .onChange(of: settings.screenAwareness) { _, on in
+                        if on && !ScreenWatcher.permitted { ScreenWatcher.requestPermission() }
+                        screenPermitted = ScreenWatcher.permitted
+                    }
+                Picker(tr("间隔", "Interval"), selection: $settings.screenMinutes) {
+                    ForEach([5, 10, 20, 30, 60], id: \.self) { Text(tr("每 \($0) 分钟", "Every \($0) min")).tag($0) }
+                }
+                .disabled(!settings.screenAwareness)
+                Picker(tr("识图服务", "Service for screenshots"), selection: $settings.screenProvider) {
+                    Text(tr("与对话相同（\(settings.provider.title)）", "Same as the chat (\(settings.provider.title))")).tag("")
+                    Text("Claude（\(settings.anthropicModel)）").tag(ProviderKind.anthropic.rawValue)
+                    Text(tr("OpenAI 兼容接口（\(settings.openaiModel)）", "OpenAI-compatible (\(settings.openaiModel))")).tag(ProviderKind.openai.rawValue)
+                }
+                .disabled(!settings.screenAwareness)
+                if settings.screenAwareness && !Providers.configured(settings, kind: settings.screenProviderKind) {
+                    Text(tr("所选的识图服务还没有填写 API key，请在“模型”页填写。", "The service chosen for screenshots has no API key yet; enter it on the Model tab."))
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                TextField(tr("不截屏的应用（名称，以逗号分隔，如：微信, 招商银行）", "Apps never captured (names, comma-separated)"), text: $settings.screenExcluded)
+                    .disabled(!settings.screenAwareness)
+                HStack {
+                    Text(screenPermitted ? tr("✓ 已获得屏幕录制权限", "✓ Screen recording allowed")
+                         : tr("尚未获得屏幕录制权限", "Screen recording not allowed yet"))
+                        .font(.caption).foregroundStyle(screenPermitted ? Color.secondary : Color.orange)
+                    Spacer()
+                    if !screenPermitted {
+                        Button(tr("打开系统设置", "Open System Settings")) {
+                            ScreenWatcher.requestPermission()
+                            ScreenWatcher.openPrivacySettings()
+                        }
+                    }
+                    Button(tr("现在看一眼", "Look now")) {
+                        lookResult = tr("正在看…", "Looking…")
+                        ScreenWatcher.shared.look { lookResult = $0 }
+                        screenPermitted = ScreenWatcher.permitted
+                    }
+                    .disabled(!settings.screenAwareness)
+                }
+                if !lookResult.isEmpty {
+                    Text(lookResult).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+                ForEach(screen.glances.prefix(6)) { g in
+                    Text(timeStamp(g.date) + " · " + g.app + " · " + g.activity)
+                        .font(.system(size: 11.5)).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+            } header: {
+                Text(tr("观察屏幕", "Watching the screen"))
+            } footer: {
+                Text(tr("开启后，你在电脑前时桌宠每隔一段时间截取指针所在屏幕（不含桌宠自身的窗口），交给所选的模型服务用一句话概括你在做什么，用于闲聊、跟进与回答；截图不保存到磁盘，只在内存中保留最近 12 条文字描述。同一应用、同一窗口 30 分钟内不重复截屏；密码管理器与上面列出的应用不截屏，屏幕上的敏感内容只记为“在处理私人事务”。识图服务须支持图片输入（Claude 与 DeepSeek 的 deepseek-flash 支持，deepseek-v4-pro 不支持），可与对话所用的服务不同，并需在“系统设置 → 隐私与安全性 → 录屏与系统录音”中允许 DeskPet，允许后重启桌宠生效。每次截屏调用一次模型。",
+                        "When on, while you are at the computer the pet takes a screenshot of the display under the pointer (without its own windows) now and then, and the selected model service sums up in one sentence what you are doing, for small talk, follow-ups and answers. Screenshots are never saved; only the last 12 sentences are kept in memory. The same app and window are not captured again within 30 minutes; password managers and the apps listed above are never captured, and sensitive content is recorded only as “handling private matters”. The service for screenshots must accept images (Claude and DeepSeek's deepseek-flash do; deepseek-v4-pro does not) and may differ from the chat's and DeskPet allowed under System Settings → Privacy & Security → Screen & System Audio Recording; restart the pet after allowing it. Each look calls the model once."))
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 Toggle(tr("日历日程提醒", "Calendar event reminders"), isOn: $settings.calendarAlerts)

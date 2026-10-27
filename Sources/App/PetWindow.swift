@@ -11,6 +11,8 @@ protocol PetWindowDelegate: AnyObject {
     /// The owner let go of the pet after dragging it.
     func petDidDrop()
     func petAnswersCleared()
+    /// The pointer has played above the pet's head (PointerTease): time to reach for it.
+    func petTeased()
 }
 
 /// Borderless, transparent, non-activating panel that floats above other windows.
@@ -58,6 +60,9 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
 
     private var trackTimer: Timer?
     private var lastMouse = NSPoint(x: -1, y: -1)
+    private var tease = PointerTease()
+    /// Whether the pet may reach for the pointer now (the owner's other doings, see AppController).
+    var mayGrab: () -> Bool = { true }
 
     private var dragStartMouse: NSPoint?
     private var dragStartOrigin = NSPoint.zero
@@ -262,12 +267,18 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
     }
 
     /// Adds a bubble to the stack above the pet; `fromUser` shows the user's own words. The pet's own bubbles are
-    /// read aloud when that is on; when the owner speaks, the pet falls silent.
-    func say(_ text: String, kind: String = "", ms: Int? = nil, fromUser: Bool = false) {
+    /// read aloud when that is on, each appearing with its voice (Speaker), unless `aloud` is false; when the owner
+    /// speaks, the pet falls silent.
+    func say(_ text: String, kind: String = "", ms: Int? = nil, fromUser: Bool = false, aloud: Bool = true) {
         var opts: [String: JSON] = ["kind": .string(kind), "from": fromUser ? "user" : "pet"]
         if let ms { opts["ms"] = .number(Double(ms)) }
-        send("pet.say", [.string(text), .object(opts)])
-        if fromUser { speaker.stop() } else { speaker.speak(text) }
+        let bubble: () -> Void = { [weak self] in self?.send("pet.say", [.string(text), .object(opts)]) }
+        if fromUser {
+            speaker.stop()
+            bubble()
+        } else {
+            speaker.speak(text, aloud: aloud, reveal: bubble)
+        }
     }
 
     func play(_ motion: PetMotion) {
@@ -417,6 +428,11 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
             if panel.ignoresMouseEvents == solid { panel.ignoresMouseEvents = !solid }
         }
         updateSafeArea()
+        let stage = NSRect(x: panel.frame.midX - stageWidth / 2, y: characterOrigin.y, width: stageWidth, height: characterHeight)
+        if tease.update(pointer: mouse, zone: PointerTease.zone(stage: stage), now: Date(),
+                        allowed: ready && !dragging && !hopping && standIn == nil && mayGrab()) {
+            delegate?.petTeased()
+        }
         if mouse != lastMouse, ready {
             lastMouse = mouse
             let p = pagePoint(mouse)

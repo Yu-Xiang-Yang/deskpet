@@ -17,6 +17,13 @@ struct OpenAICompatibleProvider: LLMProvider {
         ["role": "assistant", "content": .string(text)]
     }
 
+    func imageMessage(_ text: String, jpeg: Data) -> JSON {
+        ["role": "user", "content": [
+            ["type": "text", "text": .string(text)],
+            ["type": "image_url", "image_url": ["url": .string("data:image/jpeg;base64," + jpeg.base64EncodedString())]],
+        ]]
+    }
+
     func toolResultMessages(_ results: [ToolResult]) -> [JSON] {
         results.map { ["role": "tool", "tool_call_id": .string($0.id), "content": .string($0.content)] }
     }

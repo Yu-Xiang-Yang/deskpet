@@ -261,7 +261,7 @@ final class Mischief {
         guard abs(target - frame.minX) > 120 else { return startFakeSleep() }
         target = frame.minX + max(-520, min(520, target - frame.minX))
         pet.wander(to: target) { [weak self] in
-            self?.pet.play(.happy)
+            self?.pet.play(.grab)
             self?.pet.meow(.mew)
             self?.pet.say([tr("嘿嘿，偷偷跟过来了～", "Hehe, I sneaked over~"),
                            tr("抓到你的鼠标啦！", "Got your mouse pointer!"),

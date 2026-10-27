@@ -21,6 +21,13 @@ final class PetBrain {
     private var chatterCount = 0
     private var lastChatter = Date()
     private(set) var sleeping = false
+    private var sleptAt: Date?
+    /// Consolidating memories and thinking between conversations.
+    private(set) lazy var mind = PetMind(brain: self)
+    /// Whether the app lets the pet speak of its own accord now (no research mode, chat box or intro in the way).
+    var mayInterrupt: (() -> Bool)?
+    /// The pet may speak of its own accord: awake, not answering, and nothing else in the way.
+    var mayRemark: Bool { !sleeping && !busy && (mayInterrupt?() ?? true) }
     /// While music plays the pet stays awake (the user is probably listening, not away).
     var musicPlaying = false {
         didSet { if musicPlaying && sleeping { wake() } }
@@ -34,7 +41,10 @@ final class PetBrain {
         let idle = Timer(timeInterval: 10, repeats: true) { [weak self] _ in self?.checkIdle() }
         RunLoop.main.add(idle, forMode: .common)
         idleTimer = idle
-        let chatter = Timer(timeInterval: 60, repeats: true) { [weak self] _ in self?.maybeChatter() }
+        let chatter = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
+            self?.maybeChatter()
+            self?.mind.tick()
+        }
         RunLoop.main.add(chatter, forMode: .common)
         chatterTimer = chatter
     }
@@ -59,7 +69,9 @@ final class PetBrain {
         let cityText: String = city.isEmpty ? "（尚未在“设置 → 主人信息”中填写城市）" : "（\(city)）"
         let calendarText: String = settings.calendarInChat ? "今明两天的日程附在上下文中。" : "日程不附在对话上下文中（可在设置中开启）。"
         let taskText: String = tasks.isEmpty ? "（当前没有任务）" : "：" + tasks.joined(separator: "；")
-        let chatterText: String = settings.chatterMinutes == 0 ? "已关闭" : "每 \(settings.chatterMinutes) 分钟一次"
+        let chatterText: String = settings.chatterMinutes == 0 ? "已关闭"
+            : settings.innerThoughts ? "每 \(settings.chatterMinutes) 分钟想一想，念头足够强烈、时机合适时才开口（健谈程度：\(settings.talkativeness.title)）"
+            : "每 \(settings.chatterMinutes) 分钟一次"
         var lines: [String] = [
             "- 对话：主人点击你的身体或按全局快捷键（\(settings.hotKey.title)）打开输入框与你聊天；你以气泡回复并做出动作。",
             "- 一次性提醒：主人说“X 分钟后提醒我……”时由你经 remind 字段设定，到时以气泡与系统通知提醒，通知上可“10 分钟后再提醒”。",
@@ -67,14 +79,18 @@ final class PetBrain {
             "- 专注计时：右键菜单“开始专注 25 分钟”，结束后提醒休息 5 分钟。",
             "- 天气：上下文附带主人所在地天气；可经 weather_city 查询其它城市。天气变化提醒\(on(settings.weatherAlerts))\(cityText)。",
             "- 日历日程提醒\(on(settings.calendarAlerts))：读取系统“日历”App，每天首次见面时播报当天日程，带时间的日程提前 \(settings.calendarLeadMinutes) 分钟提醒；\(calendarText)",
-            "- 记忆库：自动记住重要信息\(on(settings.autoMemory))；主人可让你记住或忘掉某事，也可在“设置 → 记忆库”中查看与编辑。",
+            "- 记忆库：自动记住重要信息\(on(settings.autoMemory))；分为长期事实、经历（每段对话结束后整理）与印象，经历与印象若不再被提起会逐渐淡忘，"
+                + "被再次提起时记得更久；主人可让你记住或忘掉某事，也可在“设置 → 记忆库”中查看与编辑。",
             "- \(research)：右键菜单进入，是你性能最高的状态，可检索 arXiv 与 Semantic Scholar 论文、新闻、股票行情、天气与网页，以 Markdown 与 LaTeX 作答，适合长篇学术问题。",
             "- 每日任务\(on(settings.dailyTasksEnabled))：每天首次使用时自动执行\(taskText)；右键菜单可立即执行。",
             "- DeepSeek 余额：上下文附带当前余额（使用 DeepSeek 时），右键菜单“DeepSeek 余额”可查看明细与充值；余额不足提醒\(on(settings.deepseekBalanceAlerts))（低于 ¥10 时提醒一次）。",
+            "- Claude API 花费：主人在“设置 → 模型”中填写 Admin API key 后，上下文附带今日与本月的花费，以及据主人填入的余额推算的剩余；右键菜单“Claude API 花费”可查看并打开 Console 结算页（剩余余额无法直接查询，只能推算）。",
             "- Claude 额度提醒\(on(settings.claudeUsageAlerts))：读取 Claude Usage Widget 的数据，5 小时或每周额度用到 70%、90% 时提醒。",
-            "- 主动闲聊：\(chatterText)。",
+            "- 观察屏幕\(on(settings.screenAwareness))：每 \(settings.screenMinutes) 分钟截屏一次，由模型概括主人此刻在做什么（截图不保存，只保留一句描述；"
+                + "密码管理器与主人指定的应用不截屏）；上下文中的“主人屏幕上”即来自于此。主人可在“设置 → 提醒 → 观察屏幕”中开关并授予录屏权限。",
+            "- 主动闲聊：\(chatterText)。跟进之前聊过的事\(on(settings.followUps))：主人提到考试、组会、看病等事情时，你会在事后找合适的时机问问结果。",
             "- 桌面行为：随音乐摇摆\(on(settings.danceToMusic))；自己走动（\(settings.wander.title)）；攀爬窗口；淘气行为\(on(settings.mischief))（装睡、从屏幕边缘探头、偷偷靠近鼠标）。",
-            "- 朗读气泡\(on(settings.speech))：开启后你说的每个气泡都会被读出来（\(settings.speechEngine == .cloud ? "云端语音" : "系统语音")；科研回答只读开头约 \(Speaker.answerLimit) 字），主人发消息时停下；在“设置 → 通用 → 语音”中开关、选择声音与语速。",
+            "- 朗读气泡\(on(settings.speech))：开启后你说的每个气泡都会被读出来（\(settings.speechEngine == .cloud ? "云端语音" : "系统语音")；科研回答只读开头约 \(Speaker.answerLimit) 字），主人发消息时停下；执行代理与 Claude Code 的交办、汇报与报错以及超过 \(settings.speechMaxChars > 0 ? "\(settings.speechMaxChars) 字" : "设定字数") 的长文只显示不朗读；在“设置 → 通用 → 语音”中开关、选择声音与语速。使用硅基流动云端语音时，右键菜单“语音余额”与该设置页显示账户余额；硅基流动已停用余额查询接口时，二者说明原因并提供控制台入口。",
             "- 开机动画\(on(settings.bootIntro))：开机或解锁后播放金色进度条与白金页；屏幕保护程序可在“设置 → 通用”中安装。",
         ]
         lines.append("- 打开应用：只需打开时经 open_app 打开。")
@@ -91,14 +107,19 @@ final class PetBrain {
         return "\n\n## 你的能力（被问到能做什么时据此回答，指出入口；不要编造未列出的功能）\n" + lines.joined(separator: "\n")
     }
 
-    var systemPrompt: String {
+    /// Persona, name, look, how to call the owner, and the owner's background.
+    var personaSection: String {
         var s = settings.persona.trimmingCharacters(in: .whitespacesAndNewlines)
         s += "\n\n你的名字是「\(settings.petName)」。"
         if let look = settings.characterLook { s += "你的外形是\(look)。" }
         let user = settings.userName.trimmingCharacters(in: .whitespaces)
         if !user.isEmpty { s += "用户希望你称呼其为「\(user)」。" }
-        s += settings.ownerSection
-        s += MemoryStore.shared.promptSection
+        return s + settings.ownerSection
+    }
+
+    var systemPrompt: String {
+        var s = personaSection
+        s += MemoryStore.shared.coreSection(at: Date())
         s += capabilitySection
         s += """
 
@@ -107,7 +128,7 @@ final class PetBrain {
         始终只输出一个 JSON 对象，不输出任何其它文字：
         {"reply": "你说的话", "motion": "动作", "remind": null, "weather_city": null, "remember": null, "forget": null, "open_app": null, "add_event": null, "agent_task": null, "claude_task": null}
         - reply：口语化、简短（一般不超过 60 个字），可以使用颜文字；使用与用户相同的语言。
-        - motion：从 idle, happy, wave, nod, shake, think, surprised, sleepy, shy, eat, sad, swipe（伸爪拍一下，调皮）, \
+        - motion：从 idle, happy, wave, nod, shake, think, surprised, sleepy, shy, eat, sad, swipe（伸爪拍一下，调皮）, grab（站起来举起双爪去抓东西，好奇、想玩）, \
         sniff（凑近嗅嗅，好奇）, perk（竖起耳朵，警觉或感兴趣）, stretch（伸懒腰打哈欠，困倦或放松）, groom（舔爪洗脸，悠闲得意）, \
         swish（甩尾巴，有点不满）中选择最贴合语气的一个。
         - remind：当用户请求在一段时间后提醒某件事时，填写 {"minutes": 距现在的分钟数, "text": "提醒内容"}；否则为 null。
@@ -141,8 +162,9 @@ final class PetBrain {
         没点名 Claude 的事（包括一般的代码、文件、命令、查看信息、传文件）都用 agent_task。其它情况为 null。
         - lid_awake：主人要求合上盖子也不休眠、合盖继续跑代码时填 true；要求恢复合盖休眠时填 false；其它情况为 null。\
         系统会弹出 macOS 管理员授权框，reply 写一句“确认一下授权就好”之类的话。
-        用户消息开头方括号中的内容是系统提供的上下文（当前时间、主人所在地天气、主人的日程、DeepSeek 余额等），不是用户本人说的话。
-        回答时自然地参考记忆库，但不要每次都复述记忆。需要长篇解答的学术问题，请简要回答并建议用户在右键菜单中打开“科研模式”。
+        用户消息开头方括号中的内容是系统提供的上下文（当前时间、主人所在地天气、主人的日程、DeepSeek 余额等），不是用户本人说的话；\
+        其后“相关记忆”一节是系统从记忆库中检索出的、与此刻话题可能相关的记忆，同样不是主人说的话。
+        回答时自然地参考记忆库，但不要每次都复述记忆；经历记忆标有日期，越久远越模糊，提起时注意时间。需要长篇解答的学术问题，请简要回答并建议用户在右键菜单中打开“科研模式”。
         """
         return s
     }
@@ -151,7 +173,7 @@ final class PetBrain {
     var extraContext: (() -> String?)?
 
     /// Time and, when the owner's city is set, its weather (cached for 30 minutes).
-    private func context() async -> String {
+    func context() async -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "zh_CN")
         f.dateFormat = "yyyy-MM-dd EEEE HH:mm"
@@ -175,10 +197,19 @@ final class PetBrain {
         wake()
         pet.setStatus(tr("思考中", "Thinking"))
         pet.play(.think)
+        MindState.shared.ownerSpoke()
+        // Memories that matter for this message (and the pet's last words, which it may answer): attached to the
+        // request only, not stored, so that the history stays as it was sent before.
+        let now = Date()
+        let lastWords = store.daily().messages.last { $0.role == .assistant }.map { $0.text + "\n" } ?? ""
+        let recalled = MemoryStore.shared.recallBlock(for: lastWords + text, at: now)
+        MemoryStore.shared.recall(recalled.relevant, at: now)
 
         Task { [weak self] in
             guard let self else { return }
-            let sent = await self.context() + "\n" + text
+            let context = await self.context()
+            let sent = context + "\n" + text
+            let withMemories = recalled.text.isEmpty ? sent : context + "\n\n## 相关记忆（系统检索，并非主人所说）\n" + recalled.text + "\n\n" + text
             let userMessage = StoredMessage(role: .user, text: text, raw: sent)
             let conversation: Conversation = await MainActor.run {
                 var c = self.store.daily()
@@ -188,7 +219,7 @@ final class PetBrain {
             }
             do {
                 let provider = try Providers.current(self.settings)
-                let history = self.history(conversation, provider: provider)
+                let history = self.history(conversation, provider: provider, overrides: [userMessage.id: withMemories])
                 var turn = try await provider.send(LLMRequest(
                     system: self.systemPrompt, messages: history, effort: "low", noThinking: true, maxTokens: 4000, jsonSchema: PetReply.schema))
                 var reply = PetReply.parse(turn.text)
@@ -237,18 +268,19 @@ final class PetBrain {
 
     /// Plain-text history of the daily chat (last ~20 rounds). Only text is replayed here: the
     /// window slides, so earlier turns change and must not carry provider-bound blocks.
-    private func history(_ conversation: Conversation, provider: LLMProvider) -> [JSON] {
+    /// `overrides` replace the stored text of some messages in this request (the new message with its memories).
+    private func history(_ conversation: Conversation, provider: LLMProvider, overrides: [UUID: String] = [:]) -> [JSON] {
         let usable = conversation.messages.filter { $0.role != .error && $0.failed != true }
         // Trim in steps of ten messages so that the cached prefix changes less often.
         let start = max(0, (usable.count - 40 + 9) / 10 * 10)
-        var result: [JSON] = []
-        for m in usable[min(start, usable.count)...] {
-            switch m.role {
-            case .user: result.append(provider.userMessage(m.raw ?? m.text))
-            case .assistant: result.append(provider.assistantTextMessage(m.raw ?? m.text))
-            case .error: break
-            }
+        // Consecutive messages of one role (a remark of the pet's own after its reply, an agent's report) are joined:
+        // some services want the roles to alternate.
+        var turns: [(role: StoredMessage.Role, text: String)] = []
+        for m in usable[min(start, usable.count)...] where m.role != .error {
+            let text = overrides[m.id] ?? m.raw ?? m.text
+            if let last = turns.last, last.role == m.role { turns[turns.count - 1].text += "\n" + text } else { turns.append((m.role, text)) }
         }
+        var result: [JSON] = turns.map { $0.role == .user ? provider.userMessage($0.text) : provider.assistantTextMessage($0.text) }
         // The API expects the conversation to start with a user turn.
         while let first = result.first, first["role"]?.string != "user" { result.removeFirst() }
         return result
@@ -274,6 +306,19 @@ final class PetBrain {
         if settings.autoMemory, let fact = reply.remember, MemoryStore.shared.add(fact) {
             pet.say(tr("📝 记下了：", "📝 Noted: ") + fact, kind: "memory")
         }
+    }
+
+    /// A remark of the pet's own accord (an inner thought said aloud): shown, and kept in the day's chat so that the
+    /// owner can answer it.
+    func remark(_ text: String, motion: PetMotion) {
+        let raw: JSON = ["reply": .string(text), "motion": .string(motion.rawValue), "remind": nil, "weather_city": nil, "remember": nil,
+                         "forget": nil, "open_app": nil, "add_event": nil, "agent_task": nil]
+        var c = store.daily()
+        c.messages.append(StoredMessage(role: .assistant, text: text, raw: raw.compactString))
+        store.save(c)
+        pet.play(motion)
+        pet.say(text)
+        pet.meow(MeowKind(motion), chance: 0.3)
     }
 
     /// A one-off instruction to the persona, not stored in the conversation (remarks, reminder wording).
@@ -360,7 +405,7 @@ final class PetBrain {
         store.save(c)
         wake()
         pet.play(.happy)
-        pet.say(text.count > 240 ? String(text.prefix(240)) + "…" : text, kind: "reminder", ms: 20000)
+        pet.say(text.count > 240 ? String(text.prefix(240)) + "…" : text, kind: "reminder", ms: 20000, aloud: false)
         pet.meow(.trill)
     }
 
@@ -383,9 +428,16 @@ final class PetBrain {
 
     private func maybeChatter() {
         let minutes = settings.chatterMinutes
-        guard minutes > 0, !sleeping, !busy, Date().timeIntervalSince(lastChatter) >= Double(minutes) * 60 else { return }
+        guard minutes > 0, mayRemark, !mind.thinking, Date().timeIntervalSince(lastChatter) >= Double(minutes) * 60 else { return }
         lastChatter = Date()
         chatterCount += 1
+        if settings.innerThoughts {
+            // The pet thinks and speaks only when a thought is strong enough; local phrases only when it cannot think.
+            mind.think(.idle) { [weak self] outcome in
+                if outcome == .failed { self?.localChatter() }
+            }
+            return
+        }
         let every = settings.chatterLLMEvery
         if every > 0, chatterCount % every == 0 {
             oneShot("现在请你主动对用户说一句简短的闲聊、鼓励或关心的话，可以结合当前时间，不要提问太多。") { [weak self] reply in
@@ -429,13 +481,27 @@ final class PetBrain {
         let idle = Self.idleSeconds
         if !sleeping, idle >= ReminderRules.awaySeconds, !busy, !musicPlaying {
             sleeping = true
+            sleptAt = Date().addingTimeInterval(-idle)
             pet.setSleeping(true)
         } else if sleeping, idle < 5 {
+            let away = sleptAt.map { Date().timeIntervalSince($0) } ?? 0
             wake()
-            pet.say(tr("啊，你回来啦！", "Oh, welcome back!"))
-            pet.meow(.trill)
-            pet.play(.wave)
+            // After a longer absence the pet thinks of what to say (it may ask how something went, or just stretch).
+            if settings.innerThoughts, away >= 30 * 60 {
+                pet.play(.stretch)
+                mind.think(.returned(minutes: Int(away / 60))) { [weak self] outcome in
+                    if outcome == .failed { self?.welcomeBackLine() }
+                }
+            } else {
+                welcomeBackLine()
+            }
         }
+    }
+
+    private func welcomeBackLine() {
+        pet.say(tr("啊，你回来啦！", "Oh, welcome back!"))
+        pet.meow(.trill)
+        pet.play(.wave)
     }
 
     /// Leaves the sleeping state without the "welcome back" line (the login intro greets instead).

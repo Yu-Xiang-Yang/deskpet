@@ -26,6 +26,13 @@ struct AnthropicProvider: LLMProvider {
         ["role": "assistant", "content": [["type": "text", "text": .string(text)]]]
     }
 
+    func imageMessage(_ text: String, jpeg: Data) -> JSON {
+        ["role": "user", "content": [
+            ["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": .string(jpeg.base64EncodedString())]],
+            ["type": "text", "text": .string(text)],
+        ]]
+    }
+
     func toolResultMessages(_ results: [ToolResult]) -> [JSON] {
         // All results of one turn go back in a single user message.
         let blocks: [JSON] = results.map {

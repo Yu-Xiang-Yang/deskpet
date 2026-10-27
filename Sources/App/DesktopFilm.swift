@@ -28,6 +28,11 @@ final class DesktopFilm: NSObject, WKScriptMessageHandler, WKNavigationDelegate 
     private var pollTimer: Timer?
     private var pointerTimer: Timer?
     private var clickMonitor: Any?
+    /// Catches clicks on the character (CatcherPanel) while the pointer is on it.
+    private var catcher: CatcherPanel?
+    private var followTicks = 0
+    /// Left and right clicks the catcher took, for test runs.
+    private(set) var caught = (left: 0, right: 0)
     private var screenObserver: NSObjectProtocol?
     private var lastPointer = NSPoint(x: -1, y: -1)
     private var lastLayout: JSON?
@@ -53,6 +58,8 @@ final class DesktopFilm: NSObject, WKScriptMessageHandler, WKNavigationDelegate 
     var onLiveChange: ((Bool) -> Void)?
     /// A click on the character while the film plays: "head" or "body".
     var onClick: ((String) -> Void)?
+    /// A right click on the character: the pet's context menu, for the event in the view.
+    var onContextMenu: ((NSEvent, NSView) -> Void)?
     /// The opening is over (`true` after a full opening); the greeting may follow.
     var onOpened: ((Bool) -> Void)?
     /// The character got to a desktop icon or widget ("icon" or "widget", its name, the widget's owner, whether
@@ -276,6 +283,7 @@ final class DesktopFilm: NSObject, WKScriptMessageHandler, WKNavigationDelegate 
     private func stopFollowing() {
         pointerTimer?.invalidate()
         pointerTimer = nil
+        catcher?.orderOut(nil)
         if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
         clickMonitor = nil
     }
@@ -296,10 +304,66 @@ final class DesktopFilm: NSObject, WKScriptMessageHandler, WKNavigationDelegate 
     private func followPointer() {
         guard ready, let window, let webView else { return }
         let mouse = NSEvent.mouseLocation
-        guard mouse != lastPointer else { return }
+        followTicks += 1
+        // A still pointer: the character may walk away from under it, so the catcher is checked twice a second.
+        guard mouse != lastPointer || (catcher?.isVisible == true && followTicks % 15 == 0) else { return }
         lastPointer = mouse
         let p = pagePoint(mouse)
         webView.call("film.pointer", .number(Double(p.x)), .number(Double(p.y)), .bool(window.frame.contains(mouse)))
+        guard isLive, window.frame.contains(mouse) else { catcher?.orderOut(nil); return }
+        webView.evaluateJavaScript("film.over(\(Double(p.x)), \(Double(p.y)))") { [weak self] result, _ in
+            MainActor.assumeIsolated { self?.placeCatcher(on: result is String, at: mouse) }
+        }
+    }
+
+    /// The film lies below the desktop icons and lets every click through to Finder, which would open its own menu
+    /// on a right click. While the pointer is on the character, a small transparent panel just above the icons (and
+    /// below every app window) follows it and takes the clicks: a right click opens the pet's menu, a left click
+    /// pets it or opens the chat. Elsewhere the panel goes, so the icons stay clickable.
+    private func placeCatcher(on character: Bool, at point: NSPoint) {
+        guard character, isLive, NSEvent.mouseLocation == point || lastPointer == point else {
+            if !character { catcher?.orderOut(nil) }
+            return
+        }
+        let panel = catcher ?? makeCatcher()
+        let side: CGFloat = 56
+        panel.setFrame(NSRect(x: point.x - side / 2, y: point.y - side / 2, width: side, height: side), display: false)
+        if !panel.isVisible { panel.orderFrontRegardless() }
+    }
+
+    private func makeCatcher() -> CatcherPanel {
+        let panel = CatcherPanel()
+        panel.view.onLeftDown = { [weak self] in
+            self?.caught.left += 1
+            self?.clickedCharacter(at: NSEvent.mouseLocation)
+        }
+        panel.view.onRightDown = { [weak self] event, view in
+            self?.caught.right += 1
+            self?.onContextMenu?(event, view)
+        }
+        catcher = panel
+        return panel
+    }
+
+    /// A point on the character's body in screen coordinates (the middle of the grid points on it), for test runs.
+    func characterPoint(_ done: @escaping (NSPoint?) -> Void) {
+        guard isLive, ready, let webView, let frame = window?.frame else { done(nil); return }
+        let scan = "(() => { let sx = 0, sy = 0, n = 0; for (let y = 0; y < innerHeight; y += 16) for (let x = 0; x < innerWidth; x += 16)"
+            + " if (film.over(x, y) === 'body') { sx += x; sy += y; n++; } return n ? [sx / n, sy / n] : null; })()"
+        webView.evaluateJavaScript(scan) { result, _ in
+            guard let xy = result as? [Double], xy.count == 2 else { done(nil); return }
+            done(NSPoint(x: frame.minX + xy[0], y: frame.maxY - xy[1]))
+        }
+    }
+
+    /// A left click that the catcher took: on the character it pets or opens the chat (as `clicked` for Finder's).
+    private func clickedCharacter(at point: NSPoint) {
+        guard isLive, ready, let webView else { return }
+        let p = pagePoint(point)
+        webView.evaluateJavaScript("film.click(\(Double(p.x)), \(Double(p.y)))") { [weak self] result, _ in
+            guard let area = result as? String, area == "head" || area == "body" else { return }
+            self?.onClick?(area)
+        }
     }
 
     /// A click that reached the desktop (Finder) while the film plays: on the character it pets or opens the chat;
@@ -356,5 +420,42 @@ final class DesktopFilm: NSObject, WKScriptMessageHandler, WKNavigationDelegate 
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         load()
+    }
+}
+
+/// A small transparent panel just above the desktop icons, below every app window, that takes the clicks on the film's
+/// character (DesktopFilm.placeCatcher). It never becomes key, so the owner's app stays active.
+final class CatcherPanel: NSPanel {
+    final class CatcherView: NSView {
+        var onLeftDown: (() -> Void)?
+        var onRightDown: ((NSEvent, NSView) -> Void)?
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func mouseDown(with event: NSEvent) {
+            if event.modifierFlags.contains(.control) { onRightDown?(event, self) } else { onLeftDown?() }
+        }
+        override func rightMouseDown(with event: NSEvent) { onRightDown?(event, self) }
+        // Two-finger clicks and control-clicks arrive as these on some setups.
+        override func otherMouseDown(with event: NSEvent) {}
+        override func menu(for event: NSEvent) -> NSMenu? { nil }
+    }
+
+    let view = CatcherView()
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+
+    init() {
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 56, height: 56), styleMask: [.borderless, .nonactivatingPanel],
+                   backing: .buffered, defer: false)
+        level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) + 1)
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+        isOpaque = false
+        hasShadow = false
+        // Not quite transparent: fully clear pixels would let the clicks through.
+        backgroundColor = NSColor(white: 0, alpha: 0.004)
+        ignoresMouseEvents = false
+        isReleasedWhenClosed = false
+        hidesOnDeactivate = false
+        animationBehavior = .none
+        contentView = view
     }
 }

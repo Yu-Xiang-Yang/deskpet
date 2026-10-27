@@ -1,12 +1,17 @@
 import AppKit
+import AVFoundation
 import CoreAudio
 import AudioToolbox
+import SoundAnalysis
 
-/// Notices when other apps play sound and produces beats for the pet to move to.
+/// Notices when other apps play music and produces beats for the pet to move to.
 ///
-/// Which apps are playing comes from Core Audio process objects (no permission needed). The beat comes
-/// from a system-audio tap (macOS 14.2+; asks once for "System Audio Recording"): bass-band energy onsets.
-/// Without the tap, a steady groove at a typical pop tempo stands in.
+/// Which apps are playing comes from Core Audio process objects (no permission needed), and what they are from their
+/// bundle (SoundSource): music players count, calls, chats, the system's sounds and video players never do. The sound of
+/// the remaining apps (browsers and others) is judged by the system's sound classifier (MusicJudge), and the beat comes
+/// from bass-band energy onsets; both read a tap of exactly these processes (macOS 14.2+; asks once for "System Audio
+/// Recording"), so the pet's own sounds stay out. Without the tap only music players count, with a steady groove at a
+/// typical pop tempo.
 @MainActor
 final class MusicMonitor {
     var onPlayingChange: ((Bool) -> Void)?
@@ -17,6 +22,12 @@ final class MusicMonitor {
         didSet { if followBeat != oldValue { deactivate() } }
     }
 
+    /// An app sending audio to an output device, with what it is.
+    struct Source {
+        let object: AudioObjectID
+        let kind: SoundSource
+    }
+
     private(set) var playing = false
     private var pollTimer: Timer?
     private var outputSince: Date?
@@ -24,7 +35,24 @@ final class MusicMonitor {
     private var active = false
     private var lastLoud = Date.distantPast
     private var tap: BeatSource?
+    private var tapped: Set<AudioObjectID> = []
+    private var lastTapAttempt = Date.distantPast
+    private var judge = MusicJudge()
+    private var musicApp = false
+    private var lastWindow = MusicJudge.Window()
     private var grooveTimer: Timer?
+    /// The process queries ask the audio server about every process (some 25 ms for 45 of them, nearly all of it
+    /// waiting); they run on this queue, so that the main thread, which moves the pet's window, does not stall.
+    private let queries = DispatchQueue(label: "local.deskpet.musicquery", qos: .utility)
+    private var querying = false
+
+    /// The current state, for test runs: playing, listening, the tapped processes, a music player among them, the
+    /// classifier's verdict and its last window.
+    var report: String {
+        String(format: "playing=%d active=%d tapped=%d musicApp=%d judge=%d music=%.2f speech=%.2f singing=%.2f",
+               playing ? 1 : 0, active ? 1 : 0, tapped.count, musicApp ? 1 : 0, judge.isMusic ? 1 : 0,
+               lastWindow.music, lastWindow.speech, lastWindow.singing)
+    }
 
     func start() {
         guard pollTimer == nil else { return }
@@ -40,8 +68,22 @@ final class MusicMonitor {
     }
 
     private func poll() {
+        guard !querying else { return }
+        querying = true
+        queries.async { [weak self] in
+            let found = Self.soundingSources()
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.querying = false; self?.evaluate(found) } }
+        }
+    }
+
+    private func evaluate(_ found: (sources: [Source], alive: Set<AudioObjectID>)) {
+        guard pollTimer != nil else { return }  // stopped while the query ran
         let now = Date()
-        let sounding = Self.otherAppsPlaying()
+        // Without the tap, what browsers and other apps play cannot be told apart: only music players count.
+        let listening: Bool
+        if #available(macOS 14.2, *) { listening = followBeat } else { listening = false }
+        let sources = found.sources.filter { listening || $0.kind == .music }
+        let sounding = !sources.isEmpty
         if sounding {
             quietSince = nil
             if outputSince == nil { outputSince = now }
@@ -52,42 +94,77 @@ final class MusicMonitor {
 
         if !active {
             // Short sounds (notifications, clicks) are ignored: output has to last 1.5 s.
-            if let since = outputSince, now.timeIntervalSince(since) >= 1.5 { activate() }
+            if let since = outputSince, now.timeIntervalSince(since) >= 1.5 { activate(sources) }
             return
         }
         if let since = quietSince, now.timeIntervalSince(since) >= 2 {
             deactivate()
             return
         }
+        if sounding { musicApp = sources.contains { $0.kind == .music } }
+        if listening, #available(macOS 14.2, *) {
+            // A new tap when apps join (without those that have quit, which would make it fail); after a failure, a
+            // new attempt every 10 s.
+            let wanted = Set(sources.map(\.object)).union(tapped.intersection(found.alive))
+            if tap == nil ? now.timeIntervalSince(lastTapAttempt) >= 10 : !wanted.isSubset(of: tapped) { listen(to: wanted) }
+        }
         if tap != nil {
-            // An app may keep its output open while paused: only a recent signal counts as playing.
-            setPlaying(now.timeIntervalSince(lastLoud) < 2.5)
+            // An app may keep its output open while paused: only a recent signal counts as playing. Apart from music
+            // players, the classifier has to hear music (not talk, a video's voice or a notification sound).
+            setPlaying(now.timeIntervalSince(lastLoud) < 2.5 && (musicApp || judge.isMusic))
+        } else {
+            setPlaying(musicApp)
         }
     }
 
-    private func activate() {
+    private func activate(_ sources: [Source]) {
         active = true
-        if followBeat, #available(macOS 14.2, *), let tap = AudioTap(
-            onLevel: { [weak self] loud in DispatchQueue.main.async { MainActor.assumeIsolated { if loud { self?.lastLoud = Date() } } } },
-            onBeat: { [weak self] strength in DispatchQueue.main.async { MainActor.assumeIsolated { self?.beat(strength) } } }) {
-            self.tap = tap
-            NSLog("DeskPet music: following the beat through a system-audio tap")
+        judge.reset()
+        musicApp = sources.contains { $0.kind == .music }
+        if followBeat, listen(to: Set(sources.map(\.object))) {
+            NSLog("DeskPet music: listening to %d process(es)", sources.count)
         } else {
-            NSLog("DeskPet music: steady groove (beat following %@)", followBeat ? "unavailable" : "off")
+            NSLog("DeskPet music: steady groove for music players (beat following %@)", followBeat ? "unavailable" : "off")
             // A steady groove at about 112 BPM.
-            setPlaying(true)
+            setPlaying(musicApp)
             let t = Timer(timeInterval: 60.0 / 112.0, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.onBeat?(0.6) }
+                MainActor.assumeIsolated { if self?.playing == true { self?.onBeat?(0.6) } }
             }
             RunLoop.main.add(t, forMode: .common)
             grooveTimer = t
         }
     }
 
+    /// Taps exactly `processes` (a new tap when apps join); false when no tap is available.
+    @discardableResult
+    private func listen(to processes: Set<AudioObjectID>) -> Bool {
+        guard #available(macOS 14.2, *) else { return false }
+        lastTapAttempt = Date()
+        tap?.stop()
+        tap = AudioTap(
+            processes: Array(processes),
+            onLevel: { [weak self] loud in DispatchQueue.main.async { MainActor.assumeIsolated { if loud { self?.lastLoud = Date() } } } },
+            onBeat: { [weak self] strength in DispatchQueue.main.async { MainActor.assumeIsolated { self?.beat(strength) } } },
+            onWindow: { [weak self] window in
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.lastWindow = window; _ = self?.judge.add(window) } }
+            })
+        tapped = tap == nil ? [] : processes
+        if tap != nil {
+            grooveTimer?.invalidate()
+            grooveTimer = nil
+        } else {
+            NSLog("DeskPet music: no tap for %d process(es)", processes.count)
+        }
+        return tap != nil
+    }
+
     private func deactivate() {
         active = false
         tap?.stop()
         tap = nil
+        tapped = []
+        judge.reset()
+        musicApp = false
         grooveTimer?.invalidate()
         grooveTimer = nil
         setPlaying(false)
@@ -95,8 +172,7 @@ final class MusicMonitor {
 
     private func beat(_ strength: Double) {
         lastLoud = Date()
-        setPlaying(true)
-        onBeat?(strength)
+        if playing { onBeat?(strength) }
     }
 
     private func setPlaying(_ on: Bool) {
@@ -112,11 +188,17 @@ final class MusicMonitor {
         AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
     }
 
-    /// Whether any process other than this one is sending audio to an output device.
-    nonisolated static func otherAppsPlaying() -> Bool {
-        guard #available(macOS 14.2, *) else { return defaultOutputRunning() }
+    /// The other processes sending audio to an output device, except those that never count (SoundSource.ignored),
+    /// and all audio processes there are; WebKit and browser helpers are judged by the app responsible for them.
+    /// Before macOS 14.2 any output counts.
+    nonisolated static func soundingSources() -> (sources: [Source], alive: Set<AudioObjectID>) {
+        guard #available(macOS 14.2, *) else {
+            return (defaultOutputRunning() ? [Source(object: kAudioObjectUnknown, kind: .music)] : [], [])
+        }
         let own = ProcessInfo.processInfo.processIdentifier
-        for process in processObjects() {
+        let processes = processObjects()
+        var sources: [Source] = []
+        for process in processes {
             var running: UInt32 = 0
             var size = UInt32(MemoryLayout<UInt32>.size)
             var addr = address(kAudioProcessPropertyIsRunningOutput)
@@ -126,9 +208,21 @@ final class MusicMonitor {
             addr = address(kAudioProcessPropertyPID)
             AudioObjectGetPropertyData(process, &addr, 0, nil, &size, &pid)
             // WebKit plays this app's own sounds (the cat's meows) from helper processes it is responsible for.
-            if pid != own, responsiblePID(pid) != own { return true }
+            let owner = responsiblePID(pid)
+            guard pid != own, owner != own else { continue }
+            let kind = SoundSource.of(bundleID: NSRunningApplication(processIdentifier: owner)?.bundleIdentifier ?? bundleID(of: process))
+            if kind != .ignored { sources.append(Source(object: process, kind: kind)) }
         }
-        return false
+        return (sources, Set(processes))
+    }
+
+    @available(macOS 14.2, *)
+    nonisolated static func bundleID(of process: AudioObjectID) -> String? {
+        var addr = address(kAudioProcessPropertyBundleID)
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(process, &addr, 0, nil, &size, &value) == noErr else { return nil }
+        return value?.takeRetainedValue() as String?
     }
 
     /// The process macOS holds responsible for `pid` (for WebKit's helper processes: the app that uses WebKit).
@@ -170,9 +264,10 @@ protocol BeatSource: AnyObject {
     func stop()
 }
 
-/// A private system-audio tap on all processes, read through a private aggregate device.
+/// A private tap on the given processes, read through a private aggregate device.
 /// Beat detection runs on the tap's own queue: a bass-band (≈150 Hz low-pass) energy envelope is
-/// compared with its one-second average; a sharp rise is a beat (at most one per 0.28 s).
+/// compared with its one-second average; a sharp rise is a beat (at most one per 0.28 s). A mono mix goes
+/// to the system's sound classifier (1.5 s windows, half overlapping) on a queue of its own.
 @available(macOS 14.2, *)
 final class AudioTap: BeatSource {
     private var tapID = AudioObjectID(kAudioObjectUnknown)
@@ -190,11 +285,19 @@ final class AudioTap: BeatSource {
     private let onLevel: (Bool) -> Void
     private let onBeat: (Double) -> Void
 
-    init?(onLevel: @escaping (Bool) -> Void, onBeat: @escaping (Double) -> Void) {
+    // Sound classification, touched only on `analysisQueue` (the format and position only on `queue`).
+    private let analysisQueue = DispatchQueue(label: "local.deskpet.soundanalysis", qos: .utility)
+    private var analyzer: SNAudioStreamAnalyzer?
+    private var observer: ClassObserver?
+    private var monoFormat: AVAudioFormat?
+    private var framePosition: AVAudioFramePosition = 0
+
+    init?(processes: [AudioObjectID], onLevel: @escaping (Bool) -> Void, onBeat: @escaping (Double) -> Void,
+          onWindow: @escaping (MusicJudge.Window) -> Void) {
         self.onLevel = onLevel
         self.onBeat = onBeat
 
-        let description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
+        let description = CATapDescription(stereoMixdownOfProcesses: processes)
         description.isPrivate = true
         description.muteBehavior = .unmuted
         guard AudioHardwareCreateProcessTap(description, &tapID) == noErr else { return nil }
@@ -226,6 +329,19 @@ final class AudioTap: BeatSource {
         sampleRate = format.mSampleRate > 0 ? format.mSampleRate : 48_000
         let isFloat = format.mFormatFlags & kAudioFormatFlagIsFloat != 0 || format.mFormatID == 0
 
+        if let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate, channels: 1, interleaved: false),
+           let request = try? SNClassifySoundRequest(classifierIdentifier: .version1) {
+            request.windowDuration = CMTime(seconds: 1.5, preferredTimescale: 48_000)
+            request.overlapFactor = 0.5
+            let analyzer = SNAudioStreamAnalyzer(format: mono)
+            let observer = ClassObserver(onWindow: onWindow)
+            if (try? analyzer.add(request, withObserver: observer)) != nil {
+                self.analyzer = analyzer
+                self.observer = observer
+                monoFormat = mono
+            }
+        }
+
         let status = AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateID, queue) { [weak self] _, input, _, _, _ in
             guard isFloat else { return }
             self?.process(UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input)))
@@ -242,6 +358,10 @@ final class AudioTap: BeatSource {
             AudioDeviceDestroyIOProcID(aggregateID, procID)
         }
         procID = nil
+        if let analyzer {
+            analysisQueue.async { analyzer.removeAllRequests() }
+            self.analyzer = nil
+        }
         if aggregateID != kAudioObjectUnknown { AudioHardwareDestroyAggregateDevice(aggregateID) }
         if tapID != kAudioObjectUnknown { AudioHardwareDestroyProcessTap(tapID) }
         aggregateID = AudioObjectID(kAudioObjectUnknown)
@@ -283,6 +403,8 @@ final class AudioTap: BeatSource {
         let seconds = Double(frames) / sampleRate
         let now = CACurrentMediaTime()
 
+        classify(buffers, frames: frames)
+
         if now - lastLevelReport > 0.1 {
             lastLevelReport = now
             onLevel(fullEnergy > 1e-6)  // about -60 dBFS
@@ -296,5 +418,45 @@ final class AudioTap: BeatSource {
             onBeat(min(1, max(0.35, (ratio - 1) / 2)))
         }
         average += alpha * (bassEnergy - average)
+    }
+
+    /// Passes a mono mix of the buffers (interleaved or one per channel) to the sound classifier.
+    private func classify(_ buffers: UnsafeMutableAudioBufferListPointer, frames: Int) {
+        guard let analyzer, let monoFormat, frames > 0,
+              let mono = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: AVAudioFrameCount(frames)),
+              let out = mono.floatChannelData?[0] else { return }
+        mono.frameLength = AVAudioFrameCount(frames)
+        for i in 0..<frames { out[i] = 0 }
+        var channels = 0
+        for buffer in buffers {
+            guard let data = buffer.mData else { continue }
+            let samples = data.assumingMemoryBound(to: Float.self)
+            let n = Int(max(buffer.mNumberChannels, 1))
+            let available = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size / n
+            for i in 0..<min(frames, available) {
+                for c in 0..<n { out[i] += samples[i * n + c] }
+            }
+            channels += n
+        }
+        guard channels > 0 else { return }
+        let scale = 1 / Float(channels)
+        for i in 0..<frames { out[i] *= scale }
+        let position = framePosition
+        framePosition += AVAudioFramePosition(frames)
+        analysisQueue.async { analyzer.analyze(mono, atAudioFramePosition: position) }
+    }
+}
+
+/// Hands the classifier's music, speech, singing and rapping confidences of each window on.
+private final class ClassObserver: NSObject, SNResultsObserving {
+    private let onWindow: (MusicJudge.Window) -> Void
+
+    init(onWindow: @escaping (MusicJudge.Window) -> Void) { self.onWindow = onWindow }
+
+    func request(_ request: SNRequest, didProduce result: SNResult) {
+        guard let r = result as? SNClassificationResult else { return }
+        func confidence(_ id: String) -> Double { r.classification(forIdentifier: id)?.confidence ?? 0 }
+        onWindow(MusicJudge.Window(music: confidence("music"), speech: confidence("speech"),
+                                   singing: confidence("singing"), rapping: confidence("rapping")))
     }
 }

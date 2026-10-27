@@ -6,6 +6,7 @@
                         [{ x, y, w, h, name }] (their pictures), iconColumn (icons whose places are unknown)
      setLive(on, o)     the desktop came into view (play, with a long or short opening) or was covered (freeze)
      pointer(x, y, in)  the pointer, for the gaze and the parallax
+     over(x, y)         whether the point is on the character ("head", "body" or null), for the native click catcher
      click(x, y)        a click on the desktop; returns "head", "body", "bubble" or null
      glance(x, y)       look at a point for a few seconds, whatever the pointer does
      visit(o)           go to the icon of a file just put on the desktop ({ name, arrived })
@@ -707,6 +708,15 @@
     }
   }
 
+  /** Whether a point is on the character, without the side effects of a click: "head", "body" or null. */
+  function over(x, y) {
+    if (!started || !live) return null;
+    const el = document.elementFromPoint(x, y);
+    if (!el || el.closest(".bubble")) return null;
+    const area = pet.hitArea(x, y);
+    return area === "head" || area === "body" ? area : null;
+  }
+
   function click(x, y) {
     if (!started || !live) return null;
     const area = pet.hitArea(x, y);
@@ -791,6 +801,7 @@
       if (geo) layout({ ms: live ? 1200 : 0 });
     },
     pointer,
+    over,
     click,
     glance,
     visit: visitIcon,

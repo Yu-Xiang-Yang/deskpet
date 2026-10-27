@@ -14,6 +14,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private lazy var weather = WeatherWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
     private lazy var calendar = CalendarWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
     private lazy var deepseekBalance = DeepSeekBalanceWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
+    private let speechBalance = SpeechBalanceWatcher()
     private lazy var claudeUsage = ClaudeUsageWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
     private let engine = ResearchEngine()
     private lazy var research = ResearchWindowController(engine: engine)
@@ -68,22 +69,42 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }
         brain.onAddEvent = { [weak self] request in self?.addEvent(request) }
         brain.onAgentTask = { [weak self] task in self?.startAgentTask(task) }
-        brain.onClaudeTask = { [weak self] request in self?.pet.say(ClaudeCodeLauncher.open(request), kind: "memory") }
+        // The agent's and Claude Code's work (hand-overs, reports, errors) is shown, not read aloud.
+        brain.onClaudeTask = { [weak self] request in self?.pet.say(ClaudeCodeLauncher.open(request), kind: "memory", aloud: false) }
         brain.onLidAwake = { [weak self] awake in LidSleep.set(awake: awake) { self?.pet.say($0, kind: "memory") } }
         agent.onStatus = { [weak self] status in self?.pet.setStatus(status) }
+        // Reaching for the pointer only while the pet is free: awake, not in research mode, no prank, the chat box closed.
+        pet.mayGrab = { [weak self] in
+            guard let self else { return false }
+            return !self.brain.sleeping && !self.researchMode && !self.mischief.busy && !self.chatPanel.isVisible
+        }
         agent.ask = { [weak self] text, done in
             guard let self else { done(false); return }
             self.film.interrupt()  // the card hangs below the pet's own window
             self.approval.ask(text, below: self.pet.panel, done: done)
         }
+        // Remarks of the pet's own accord wait while research mode, the chat box, the daily tasks or the intro are on.
+        brain.mayInterrupt = { [weak self] in
+            guard let self else { return false }
+            return !self.researchMode && !self.chatPanel.isVisible && !self.dailyRunning && !self.introPlaying
+        }
+        MemoryStore.shared.semantic = MemoryEmbedding.similarities
+        // The screen is looked at only while it is unlocked, the pet is awake and no intro plays.
+        ScreenWatcher.shared.mayLook = { [weak self] in
+            guard let self else { return false }
+            return !self.screenLocked && !self.introPlaying && !self.brain.sleeping
+        }
+        ScreenWatcher.shared.start()
         brain.start()
         reminders.start()
         weather.start()
         claudeUsage.start()
         calendar.start()
         deepseekBalance.start()
+        ClaudeCostWatcher.shared.start()
         brain.extraContext = { [weak self] in
-            let lines = [self?.calendar.contextLine, self?.deepseekBalance.contextLine].compactMap { $0 }
+            let lines = [ScreenWatcher.shared.contextLine, self?.calendar.contextLine, self?.deepseekBalance.contextLine,
+                         ClaudeCostWatcher.shared.contextLine].compactMap { $0 }
             return lines.isEmpty ? nil : lines.joined(separator: "｜")
         }
         settings.$calendarAlerts.dropFirst().removeDuplicates().filter { $0 }.sink { [weak self] _ in
@@ -104,8 +125,17 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }
         settingsWindow.onTestReminders = { [weak self] in self?.reminders.fireAllForTesting() }
         settingsWindow.onRunDailyTasks = { [weak self] in self?.runDailyTasks() }
+        settingsWindow.onDigestMemories = { [weak self] report in self?.brain.mind.digestNow(done: report) }
         settingsWindow.onPreviewMeow = { [weak self] in self?.pet.meow(.meow) }
         settingsWindow.onPreviewSpeech = { [weak self] outcome in self?.pet.speaker.preview(outcome: outcome) }
+        settingsWindow.onCheckSpeechBalance = { [weak self] report in
+            self?.speechBalance.refresh { result in
+                switch result {
+                case .success(let b): report(b.detail)
+                case .failure(let error): report("✗ " + error.localizedDescription)
+                }
+            }
+        }
         settingsWindow.onCheckWeather = { [weak self] report in self?.weather.check(force: true, report: report) }
         settingsWindow.onCheckCalendar = { [weak self] report in
             self?.calendar.requestAccess { _ in self?.calendar.check(force: true, report: report) }
@@ -230,6 +260,10 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         film.onOpened = { [weak self] long in self?.filmOpened(long) }
         film.onVisit = { [weak self] kind, name, owner, arrived in self?.filmVisited(kind: kind, name: name, owner: owner, arrived: arrived) }
         film.onClick = { [weak self] area in self?.petDidClick(area: area, clickCount: 1) }
+        film.onContextMenu = { [weak self] event, view in
+            guard let self else { return }
+            NSMenu.popUpContextMenu(self.petContextMenu(), with: event, for: view)
+        }
         settings.$desktopFilm.removeDuplicates().sink { [weak self] on in
             guard let self else { return }
             self.film.setEnabled(on, model: on ? self.settings.selectedModel : nil)
@@ -381,7 +415,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
                 self.brain.agentFinished(task: task, report: report)
             } catch {
                 self.pet.play(.sad)
-                self.pet.say(error.localizedDescription, kind: "error")
+                self.pet.say(error.localizedDescription, kind: "error", aloud: false)
             }
         }
     }
@@ -563,14 +597,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     }
 
     /// Whether a model can be called without first asking the user for a key.
-    private var providerConfigured: Bool {
-        switch settings.provider {
-        case .anthropic: return Keychain.hasValue(account: "anthropic")
-        case .openai:
-            let base = settings.openaiBaseURL
-            return Keychain.hasValue(account: "openai") || base.contains("localhost") || base.contains("127.0.0.1")
-        }
-    }
+    private var providerConfigured: Bool { Providers.configured(settings) }
 
     /// The first launch (or the first use) of each day runs the daily tasks once.
     private func runDailyTasksIfDue() {
@@ -622,6 +649,16 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }
     }
 
+    /// The pointer played above the pet's head: it rises up and reaches for it with both forepaws, then jumps at it.
+    func petTeased() {
+        pet.play(.grab)
+        pet.meow(.trill, chance: 0.5)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+            guard let self, !self.pet.dragging, !self.pet.hopping, self.pet.standIn == nil else { return }
+            self.pet.bounce()
+        }
+    }
+
     /// Back to the small bubble area once the last answer bubble has gone (outside research mode).
     func petAnswersCleared() {
         if !researchMode && !dailyRunning { pet.setBubbles(PetWindowController.chatBubbles) }
@@ -655,13 +692,31 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
                 else if command == "icons-report", let dir = ProcessInfo.processInfo.environment["DESKPET_DIR"] {
                     try? self.iconVisits.report.write(toFile: dir + "/icons.txt", atomically: true, encoding: .utf8)
                 }
+                else if command == "tease" { self.petTeased() }
                 else if command.hasPrefix("act:") { self.pet.play(PetMotion(rawValue: String(command.dropFirst(4))) ?? .idle) }
                 else if command.hasPrefix("meow:") { self.pet.meow(MeowKind(rawValue: String(command.dropFirst(5))) ?? .meow) }
                 // Reading aloud: a bubble of the pet, and how the last one was spoken (DESKPET_DIR/speech.txt).
                 else if command.hasPrefix("say:") { self.pet.say(String(command.dropFirst(4))) }
+                else if command.hasPrefix("agent-report:") { self.brain.agentFinished(task: "test", report: String(command.dropFirst(13))) }
                 else if command == "settings" { self.settingsWindow.show() }
+                // The inner life: consolidate the chat now, think (of the pet's own accord, after a return, about a
+                // follow-up), run the minute's tick, and its state (DESKPET_DIR/mind.txt).
+                else if command == "digest" { self.brain.mind.digestNow { NSLog("DeskPet digest: %@", $0) } }
+                else if command == "think" { self.brain.mind.think(.idle) }
+                else if command.hasPrefix("think-return:") { self.brain.mind.think(.returned(minutes: Int(command.dropFirst(13)) ?? 60)) }
+                else if command == "think-follow" { self.brain.mind.think(.followUp) }
+                else if command == "mind-tick" { self.brain.mind.tick() }
+                else if command == "look" { ScreenWatcher.shared.look { NSLog("DeskPet look: %@", $0) } }
+                else if command == "mind-report", let dir = ProcessInfo.processInfo.environment["DESKPET_DIR"] {
+                    try? self.brain.mind.report.write(toFile: dir + "/mind.txt", atomically: true, encoding: .utf8)
+                }
+                else if command == "speech-balance" { self.reportSpeechBalance() }
+                else if command == "music-report", let dir = ProcessInfo.processInfo.environment["DESKPET_DIR"] {
+                    try? self.music.report.write(toFile: dir + "/music.txt", atomically: true, encoding: .utf8)
+                }
                 else if command == "speech-report", let dir = ProcessInfo.processInfo.environment["DESKPET_DIR"] {
-                    try? self.pet.speaker.report.write(toFile: dir + "/speech.txt", atomically: true, encoding: .utf8)
+                    try? (self.pet.speaker.report + "\trevealed=\(self.pet.speaker.revealed)\tcached=\(self.pet.speaker.cacheHits)")
+                        .write(toFile: dir + "/speech.txt", atomically: true, encoding: .utf8)
                 }
                 // The desktop film without changing the stored setting: on, forced live / still / back to the desktop.
                 else if command == "film-on" { self.film.setEnabled(true, model: self.settings.selectedModel) }
@@ -670,6 +725,14 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
                 else if command == "film-still" { self.film.forced = false }
                 else if command == "film-auto" { self.film.forced = nil }
                 else if command.hasPrefix("film-click:") { self.petDidClick(area: String(command.dropFirst(11)), clickCount: 1) }
+                // A point on the film's character, in screen coordinates (DESKPET_DIR/film.txt), to aim real clicks at.
+                else if command == "film-target", let dir = ProcessInfo.processInfo.environment["DESKPET_DIR"] {
+                    self.film.characterPoint { point in
+                        let text = (point.map { "\(Int($0.x)) \(Int($0.y))" } ?? "none")
+                            + " left=\(self.film.caught.left) right=\(self.film.caught.right)"
+                        try? text.write(toFile: dir + "/film.txt", atomically: true, encoding: .utf8)
+                    }
+                }
             }
         }
     }
@@ -744,8 +807,98 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         }
     }
 
+    private func claudeCostItem() -> NSMenuItem {
+        let watcher = ClaudeCostWatcher.shared
+        let title = watcher.cost.map { _ in watcher.lines.last ?? "" } ?? ""
+        let item = NSMenuItem(title: tr("Claude API 花费", "Claude API spending") + (title.isEmpty ? "" : "：" + title), action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        for line in watcher.lines {
+            let i = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+            i.isEnabled = false
+            submenu.addItem(i)
+        }
+        if settings.claudeCreditBase <= 0 {
+            let hint = NSMenuItem(title: tr("在“设置 → 模型”中填入 Console 显示的余额后可估算剩余", "Enter the Console's balance under Settings → Model to estimate what is left"),
+                                  action: nil, keyEquivalent: "")
+            hint.isEnabled = false
+            submenu.addItem(hint)
+        }
+        submenu.addItem(.separator())
+        let report = NSMenuItem(title: tr("让桌宠报告一下", "Have the pet report"), action: #selector(reportClaudeCost), keyEquivalent: "")
+        report.target = self
+        submenu.addItem(report)
+        let open = NSMenuItem(title: tr("打开 Claude Console 结算页", "Open Claude Console billing"), action: #selector(openClaudeBilling), keyEquivalent: "")
+        open.target = self
+        submenu.addItem(open)
+        item.submenu = submenu
+        return item
+    }
+
+    @objc private func reportClaudeCost() {
+        pet.setStatus(tr("查询 Claude 花费", "Checking Claude spending"))
+        ClaudeCostWatcher.shared.refresh { [weak self] result in
+            guard let self else { return }
+            self.pet.setStatus(nil)
+            switch result {
+            case .success:
+                self.pet.play(.nod)
+                self.pet.say(tr("Claude API：", "Claude API: ") + ClaudeCostWatcher.shared.lines.joined(separator: tr("；", "; ")) + tr("。", "."), ms: 15000)
+            case .failure(let error):
+                self.pet.play(.sad)
+                self.pet.say(error.localizedDescription, kind: "error")
+            }
+        }
+    }
+
+    @objc private func openClaudeBilling() {
+        if let url = URL(string: ClaudeCost.consoleURL) { NSWorkspace.shared.open(url) }
+    }
+
     @objc private func openDeepSeekTopUp() {
         if let url = URL(string: "https://platform.deepseek.com/top_up") { NSWorkspace.shared.open(url) }
+    }
+
+    private func speechBalanceItem() -> NSMenuItem {
+        let b = speechBalance.balance, retired = speechBalance.retired
+        let value = retired ? tr("：在控制台查看", ": see the console") : b.map { "：\($0.short)" } ?? ""
+        let item = NSMenuItem(title: tr("语音余额", "Voice balance") + value, action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        let text = retired ? tr("硅基流动已停用余额查询接口", "SiliconFlow has retired its balance endpoint")
+            : b.map { tr("硅基流动 ", "SiliconFlow ") + $0.detail } ?? tr("尚未获取", "Not fetched yet")
+        let line = NSMenuItem(title: text, action: nil, keyEquivalent: "")
+        line.isEnabled = false
+        submenu.addItem(line)
+        submenu.addItem(.separator())
+        if !retired {
+            let report = NSMenuItem(title: tr("让桌宠报告一下", "Have the pet report"), action: #selector(reportSpeechBalance), keyEquivalent: "")
+            report.target = self
+            submenu.addItem(report)
+        }
+        let open = NSMenuItem(title: tr("打开硅基流动控制台", "Open the SiliconFlow console"), action: #selector(openSpeechConsole), keyEquivalent: "")
+        open.target = self
+        submenu.addItem(open)
+        item.submenu = submenu
+        return item
+    }
+
+    @objc private func reportSpeechBalance() {
+        pet.setStatus(tr("查询余额", "Checking the balance"))
+        speechBalance.refresh { [weak self] result in
+            guard let self else { return }
+            self.pet.setStatus(nil)
+            switch result {
+            case .success(let b):
+                self.pet.play(.nod)
+                self.pet.say(tr("语音余额（硅基流动）：", "Voice balance (SiliconFlow): ") + b.detail, ms: 15000)
+            case .failure(let error):
+                self.pet.play(.sad)
+                self.pet.say(error.localizedDescription, kind: "error")
+            }
+        }
+    }
+
+    @objc private func openSpeechConsole() {
+        if let url = CloudSpeechBalance.console(baseURL: settings.cloudSpeechBaseURL) { NSWorkspace.shared.open(url) }
     }
 
     @objc private func reportClaudeUsage() {
@@ -910,9 +1063,17 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         messages.submenu = submenu
         menu.addItem(messages)
         if let usage = claudeUsage.refresh() { menu.addItem(claudeUsageItem(usage)) }
+        if ClaudeCostWatcher.shared.shown {
+            menu.addItem(claudeCostItem())
+            ClaudeCostWatcher.shared.refresh(maxAge: 60)  // fresh for the next look
+        }
         if DeepSeekBalanceWatcher.endpoint != nil {
             menu.addItem(deepseekBalanceItem())
             deepseekBalance.refresh(maxAge: 60)  // fresh for the next look
+        }
+        if SpeechBalanceWatcher.shown {
+            menu.addItem(speechBalanceItem())
+            speechBalance.refresh(maxAge: 60)
         }
         menu.addItem(.separator())
         item(reminders.focusRunning ? tr("停止专注计时", "Stop focus timer") : tr("开始专注 25 分钟", "Focus for 25 minutes"), #selector(toggleFocus))

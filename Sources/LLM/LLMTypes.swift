@@ -83,6 +83,8 @@ protocol LLMProvider {
     var kind: ProviderKind { get }
     func send(_ request: LLMRequest, onEvent: @escaping (LLMStreamEvent) -> Void) async throws -> LLMTurn
     func userMessage(_ text: String) -> JSON
+    /// A user message with a JPEG image before the text (the model must accept images).
+    func imageMessage(_ text: String, jpeg: Data) -> JSON
     func assistantTextMessage(_ text: String) -> JSON
     /// Messages carrying tool results (one user message for Anthropic, one `tool` message per result for OpenAI).
     func toolResultMessages(_ results: [ToolResult]) -> [JSON]

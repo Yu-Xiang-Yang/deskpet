@@ -32,18 +32,21 @@ final class DeepSeekBalanceWatcher {
     /// Fetches the balance (skipped if the last one is under `maxAge` old); `done` gets the result or an error text.
     func refresh(maxAge: TimeInterval = 0, done: ((Result<DeepSeekBalance, Error>) -> Void)? = nil) {
         if let b = balance, Date().timeIntervalSince(b.fetched) < maxAge { done?(.success(b)); return }
-        guard let url = Self.endpoint, let key = Keychain.read(account: "openai"), !key.isEmpty else {
-            done?(.failure(BalanceError(tr("需要在“设置 → 模型”中把 DeepSeek 设为 OpenAI 兼容接口并填写 API key。",
-                                           "Set DeepSeek as the OpenAI-compatible provider with its API key under Settings → Model."))))
-            return
-        }
+        let missing = BalanceError(tr("需要在“设置 → 模型”中把 DeepSeek 设为 OpenAI 兼容接口并填写 API key。",
+                                      "Set DeepSeek as the OpenAI-compatible provider with its API key under Settings → Model."))
+        guard let url = Self.endpoint else { done?(.failure(missing)); return }
         guard !fetching else { return }
         fetching = true
-        var request = URLRequest(url: url, timeoutInterval: 20)
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
         Task { @MainActor in
             defer { self.fetching = false }
+            // Read off the main thread: the Keychain may first ask for access.
+            guard let key = await Keychain.readInBackground(account: "openai"), !key.isEmpty else {
+                done?(.failure(missing))
+                return
+            }
+            var request = URLRequest(url: url, timeoutInterval: 20)
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
             do {
                 let (data, response) = try await URLSession.shared.data(for: request)
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0

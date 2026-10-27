@@ -122,6 +122,26 @@ Task {
     check((snapshot?.hours.count ?? 0) >= 6 && snapshot?.tomorrowMax != nil, "Live forecast snapshot: \(snapshot?.hours.count ?? 0) hours")
     let brief = await Weather.brief("Beijing")
     check(brief?.contains("°C") == true && brief?.contains("\n") == false, "Weather brief is one line: \(brief?.prefix(60) ?? "nil")")
+    // The Admin API's cost report: pages followed and added up; a wrong key gets the API's message.
+    func costPages(key: String) async -> (days: [Date: Double], status: Int) {
+        var days: [Date: Double] = [:]
+        var page: String?
+        for _ in 0..<ClaudeCost.maxPages {
+            guard let url = ClaudeCost.url(from: Date(timeIntervalSince1970: 1_793_000_000), page: page, endpoint: base + "/v1/organizations/cost_report") else { break }
+            var request = URLRequest(url: url)
+            request.setValue(key, forHTTPHeaderField: "x-api-key")
+            guard let (data, response) = try? await URLSession.shared.data(for: request) else { return (days, 0) }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard status == 200, let parsed = ClaudeCost.parse(data) else { return (days, status) }
+            days.merge(parsed.days) { $0 + $1 }
+            page = parsed.next
+            if page == nil { break }
+        }
+        return (days, 200)
+    }
+    let cost = await costPages(key: "test-admin-key")
+    check(cost.days.count == 3 && abs(cost.days.values.reduce(0, +) - 1173.45) < 1e-6, "Cost report: two pages, \(cost.days.values.reduce(0, +)) cents")
+    check(await costPages(key: "wrong").status == 401, "Cost report refuses a wrong Admin key")
     let local = await ResearchTools.run(ToolCall(id: "w", name: "fetch_webpage", input: ["url": "http://127.0.0.1:8799/"]))
     check(local.content.hasPrefix("Only public"), "fetch_webpage refuses local addresses")
     semaphore.signal()
