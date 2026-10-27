@@ -54,7 +54,7 @@ final class AppSettings: ObservableObject {
     @Published var screenAwareness: Bool { didSet { defaults.set(screenAwareness, forKey: "screenAwareness") } }
     /// Minutes between looks.
     @Published var screenMinutes: Int { didSet { defaults.set(screenMinutes, forKey: "screenMinutes") } }
-    /// Apps never captured, by name (separated by commas or new lines), besides the password managers.
+    /// Apps never captured, by name (separated by commas or new lines).
     @Published var screenExcluded: String { didSet { defaults.set(screenExcluded, forKey: "screenExcluded") } }
     /// The service that looks at screenshots: "anthropic", "openai", or empty for the chat's service.
     @Published var screenProvider: String { didSet { defaults.set(screenProvider, forKey: "screenProvider") } }

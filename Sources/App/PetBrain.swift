@@ -87,7 +87,7 @@ final class PetBrain {
             "- Claude API 花费：主人在“设置 → 模型”中填写 Admin API key 后，上下文附带今日与本月的花费，以及据主人填入的余额推算的剩余；右键菜单“Claude API 花费”可查看并打开 Console 结算页（剩余余额无法直接查询，只能推算）。",
             "- Claude 额度提醒\(on(settings.claudeUsageAlerts))：读取 Claude Usage Widget 的数据，5 小时或每周额度用到 70%、90% 时提醒。",
             "- 观察屏幕\(on(settings.screenAwareness))：每 \(settings.screenMinutes) 分钟截屏一次，由模型概括主人此刻在做什么（截图不保存，只保留一句描述；"
-                + "密码管理器与主人指定的应用不截屏）；上下文中的“主人屏幕上”即来自于此。主人可在“设置 → 提醒 → 观察屏幕”中开关并授予录屏权限。",
+                + "主人指定的应用不截屏）；上下文中的“主人屏幕上”即来自于此。主人可在“设置 → 提醒 → 观察屏幕”中开关并授予录屏权限。",
             "- 主动闲聊：\(chatterText)。跟进之前聊过的事\(on(settings.followUps))：主人提到考试、组会、看病等事情时，你会在事后找合适的时机问问结果。",
             "- 桌面行为：随音乐摇摆\(on(settings.danceToMusic))；自己走动（\(settings.wander.title)）；攀爬窗口；淘气行为\(on(settings.mischief))（装睡、从屏幕边缘探头、偷偷靠近鼠标）。",
             "- 朗读气泡\(on(settings.speech))：开启后你说的每个气泡都会被读出来（\(settings.speechEngine == .cloud ? "云端语音" : "系统语音")；科研回答只读开头约 \(Speaker.answerLimit) 字），主人发消息时停下；执行代理与 Claude Code 的交办、汇报与报错以及超过 \(settings.speechMaxChars > 0 ? "\(settings.speechMaxChars) 字" : "设定字数") 的长文只显示不朗读；在“设置 → 通用 → 语音”中开关、选择声音与语速。使用硅基流动云端语音时，右键菜单“语音余额”与该设置页显示账户余额；硅基流动已停用余额查询接口时，二者说明原因并提供控制台入口。",

@@ -47,7 +47,7 @@ def inner_life(system, last):
                 "updates": [], "insight": {"text": "主人最近为组会汇报有些焦虑", "importance": 5}}
     if "【观察屏幕】" in system:
         seen = '"type": "image"' in last or "image_url" in last
-        return {"activity": "在 Xcode 里调试桌宠的 Swift 代码" if seen else "（没有收到截图）", "kind": "work", "private": False}
+        return {"activity": "在 Xcode 里调试桌宠的 Swift 代码" if seen else "（没有收到截图）", "kind": "work"}
     if "【念头】" in system:
         if "到期要跟进的事" in last:
             return {"thoughts": [{"thought": "组会应该结束了", "say": "组会后来顺利吗？", "motion": "perk", "motivation": 5, "follow_up": "E1"}]}

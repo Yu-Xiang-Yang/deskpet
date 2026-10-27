@@ -3,9 +3,8 @@ import ScreenCaptureKit
 
 /// Looks at the owner's screen now and then (Settings → Reminders → Watching the screen): a screenshot of the display
 /// under the pointer, without the pet's own windows, goes to the model, which says in one sentence what the owner is
-/// doing. Only that sentence is kept, in memory; the screenshot is never written to disk. Password managers and the
-/// apps the owner lists are not captured, and an unchanged scene (same app and window) is not looked at again for
-/// half an hour.
+/// doing. Only that sentence is kept, in memory; the screenshot is never written to disk. Apps the owner lists are not
+/// captured, and an unchanged scene (same app and window) is not looked at again for half an hour.
 final class ScreenWatcher: ObservableObject {
     static let shared = ScreenWatcher()
 
@@ -89,8 +88,8 @@ final class ScreenWatcher: ObservableObject {
         if front?.processIdentifier == ProcessInfo.processInfo.processIdentifier, let other = lastOtherApp, !other.isTerminated { front = other }
         let app = front?.localizedName ?? tr("未知应用", "an unknown app")
         let title = front.flatMap { Self.windowTitle(pid: $0.processIdentifier) }
-        if ScreenGlances.excluded(bundleID: front?.bundleIdentifier, name: app, list: settings.screenExcluded) {
-            let glance = ScreenGlance(date: now, looked: now, app: app, activity: "在使用\(app)（按隐私设置未截屏）", kind: "other", unseen: true)
+        if ScreenGlances.excluded(name: app, list: settings.screenExcluded) {
+            let glance = ScreenGlance(date: now, looked: now, app: app, activity: "在使用\(app)（按设置未截屏）", kind: "other", unseen: true)
             record(glance)
             done?(glance.activity)
             return
@@ -134,11 +133,10 @@ final class ScreenWatcher: ObservableObject {
 
     static func prompt(petName: String) -> String {
         """
-        你是桌面宠物「\(petName)」的视觉模块。【观察屏幕】根据主人电脑屏幕的截图，用一句话客观描述主人此刻在做什么：所用应用、\
-        正在进行的任务与内容的主题，例如“在 Xcode 里调试桌宠的 Swift 代码”“在 B 站看猫咪视频”“在微信里和同学商量组会安排”。\
-        只描述活动，不转述屏幕上的具体隐私信息（密码、验证码、账号、银行卡号、他人聊天与邮件的具体内容等）。\
-        若屏幕主要是银行、支付、密码、医疗记录或私密聊天等敏感内容，private 为 true。只输出一个 JSON 对象：
-        {"activity": "一句话描述", "kind": "work 或 study、leisure、communication、other", "private": false}
+        你是桌面宠物「\(petName)」的视觉模块。【观察屏幕】根据主人电脑屏幕的截图，用一句话具体描述主人此刻在做什么：所用应用、\
+        正在进行的任务、内容的主题与要点，例如“在 Xcode 里调试桌宠的 Swift 代码”“在 B 站看猫咪视频”“在微信里和同学商量周三组会的安排”。\
+        密码、验证码与银行卡号等凭据不要逐字抄写。只输出一个 JSON 对象：
+        {"activity": "一句话描述", "kind": "work 或 study、leisure、communication、other"}
         """
     }
 

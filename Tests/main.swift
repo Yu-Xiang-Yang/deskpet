@@ -520,10 +520,9 @@ do {
           "OpenAI-compatible image message: data URL")
 
     // Apps left out, scenes not looked at again, screenshot size.
-    check(ScreenGlances.excluded(bundleID: "com.1password.1password", name: "1Password", list: ""), "Password managers are never captured")
-    check(ScreenGlances.excluded(bundleID: "com.tencent.xinWeChat", name: "微信", list: "微信，招商银行") &&
-          ScreenGlances.excluded(bundleID: nil, name: "招商银行 Mac", list: "微信、招商银行") &&
-          !ScreenGlances.excluded(bundleID: "com.apple.dt.Xcode", name: "Xcode", list: "微信, 招商银行"), "The owner's list, by name")
+    check(!ScreenGlances.excluded(name: "1Password", list: ""), "Without a list every app is captured")
+    check(ScreenGlances.excluded(name: "微信", list: "微信，招商银行") && ScreenGlances.excluded(name: "招商银行 Mac", list: "微信、招商银行")
+          && !ScreenGlances.excluded(name: "Xcode", list: "微信, 招商银行"), "The owner's list, by name")
     let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     let seen = ScreenGlance(date: t0, looked: t0, app: "Xcode", title: "PetMind.swift", activity: "在 Xcode 里写代码", kind: "work")
     check(ScreenGlances.sameScene(seen, app: "Xcode", title: "PetMind.swift", now: t0.addingTimeInterval(600)), "Same app and window: no new screenshot")
@@ -534,10 +533,10 @@ do {
           "Screenshot scaled to 1280 px on its longest side")
 
     // The model's account.
-    check(ScreenGlances.parse(#"{"activity":"在 B 站看猫咪视频","kind":"leisure","private":false}"#)! == ("在 B 站看猫咪视频", "leisure"), "Glance parsed")
-    check(ScreenGlances.parse(#"{"activity":"在网银查看账户余额 12,345 元","kind":"other","private":true}"#)?.activity == "在处理私人事务（内容未记录）",
-          "A private screen is not described")
-    check(ScreenGlances.parse(#"{"activity":"写论文","kind":"dreaming","private":false}"#)?.kind == "other" && ScreenGlances.parse("看不清") == nil,
+    check(ScreenGlances.parse(#"{"activity":"在 B 站看猫咪视频","kind":"leisure"}"#)! == ("在 B 站看猫咪视频", "leisure"), "Glance parsed")
+    check(ScreenGlances.parse(#"{"activity":"在网银查看本月账单","kind":"other","private":true}"#)?.activity == "在网银查看本月账单",
+          "Every screen is described as it is")
+    check(ScreenGlances.parse(#"{"activity":"写论文","kind":"dreaming"}"#)?.kind == "other" && ScreenGlances.parse("看不清") == nil,
           "Unknown kind, unreadable account")
     check(ScreenGlances.contextLine(seen, now: t0.addingTimeInterval(180)) == "主人屏幕上（3 分钟前，工作）：在 Xcode 里写代码"
           && ScreenGlances.contextLine(seen, now: t0.addingTimeInterval(1300)) == nil, "Context line while fresh")

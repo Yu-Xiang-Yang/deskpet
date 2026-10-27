@@ -14,7 +14,7 @@ struct ScreenGlance: Equatable, Identifiable {
     var activity: String
     /// "work", "study", "leisure", "communication" or "other".
     var kind: String
-    /// Seen without a screenshot (an app left out of capture).
+    /// Seen without a screenshot (an app the owner left out of capture).
     var unseen = false
 }
 
@@ -23,22 +23,14 @@ enum ScreenGlances {
     /// Longest side of the screenshot sent to the model, in pixels.
     static let maxSide = 1280
 
-    /// Apps never captured: password managers and the Keychain.
-    static let privateBundleIDs: Set<String> = [
-        "com.apple.keychainaccess", "com.apple.Passwords", "com.1password.1password", "com.agilebits.onepassword7",
-        "com.bitwarden.desktop", "com.lastpass.LastPass", "com.dashlane.dashlanephonefinal", "org.keepassxc.keepassxc",
-    ]
-
     /// App names in the owner's list, separated by commas, "、" or new lines.
     static func names(_ list: String) -> [String] {
         list.components(separatedBy: CharacterSet(charactersIn: ",，、;；\n"))
             .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
     }
 
-    /// Whether the app is left out of capture: a password manager, or one whose name contains a name of the owner's
-    /// list (case-insensitive).
-    static func excluded(bundleID: String?, name: String, list: String) -> Bool {
-        if let id = bundleID, privateBundleIDs.contains(id) { return true }
+    /// Whether the app is left out of capture: its name contains a name of the owner's list (case-insensitive).
+    static func excluded(name: String, list: String) -> Bool {
         let app = name.lowercased()
         return names(list).contains { app.contains($0) }
     }
@@ -61,22 +53,20 @@ enum ScreenGlances {
         [
             "type": "object",
             "additionalProperties": false,
-            "required": ["activity", "kind", "private"],
+            "required": ["activity", "kind"],
             "properties": [
                 "activity": ["type": "string", "description": "One sentence: what the owner is doing now."],
                 "kind": ["type": "string", "enum": .array(kinds.map { .string($0) })],
-                "private": ["type": "boolean", "description": "The screen shows mostly sensitive content (banking, passwords, private chats)."],
             ],
         ]
     }
 
-    /// Reads the model's account tolerantly; a private screen becomes a neutral sentence, an unknown kind "other".
+    /// Reads the model's account tolerantly; an unknown kind becomes "other".
     static func parse(_ raw: String) -> (activity: String, kind: String)? {
         for candidate in PetReply.jsonCandidates(in: raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
             guard let json = try? JSON.parse(candidate),
                   let activity = json["activity"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !activity.isEmpty else { continue }
             let kind = json["kind"]?.string.flatMap { kinds.contains($0) ? $0 : nil } ?? "other"
-            if json["private"]?.bool == true { return ("在处理私人事务（内容未记录）", kind) }
             return (activity.count > 120 ? String(activity.prefix(120)) + "…" : activity, kind)
         }
         return nil
