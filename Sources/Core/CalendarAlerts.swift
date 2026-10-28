@@ -29,6 +29,27 @@ struct CalendarAlertState: Codable, Equatable {
 }
 
 enum CalendarAlerts {
+    /// An event as an entry of the memory bank (MemoryKind.reminder): the source that identifies it, its text, and
+    /// when the pet is to bring it up (`leadMinutes` before a timed event, 08:30 on the day of an all-day one).
+    static func reminder(_ e: CalendarEvent, leadMinutes: Int, calendar: Calendar = .current) -> (source: String, text: String, at: Date) {
+        let day = DateFormatter()
+        day.calendar = calendar
+        day.timeZone = calendar.timeZone
+        day.locale = Locale(identifier: "zh_CN")
+        day.dateFormat = "M月d日 EEEE"
+        let hm = DateFormatter()
+        hm.calendar = calendar
+        hm.timeZone = calendar.timeZone
+        hm.dateFormat = "HH:mm"
+        var text = "日程：" + day.string(from: e.start) + " "
+        text += e.allDay ? "全天 " : hm.string(from: e.start) + "–" + hm.string(from: e.end) + " "
+        text += e.title
+        if let place = e.location?.trimmingCharacters(in: .whitespacesAndNewlines), !place.isEmpty { text += "（\(place)）" }
+        let at = e.allDay ? calendar.date(bySettingHour: 8, minute: 30, second: 0, of: e.start) ?? e.start
+                          : e.start.addingTimeInterval(-Double(max(0, leadMinutes)) * 60)
+        return ("calendar:" + e.key, text, at)
+    }
+
     /// An event is still announced this long after its start (e.g. right after the Mac woke).
     static let lateMinutes = 5
     /// The day's overview is given from this hour on, at the first check while the owner is at the Mac.

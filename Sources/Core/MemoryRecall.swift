@@ -9,6 +9,9 @@ enum MemoryKind: String, Codable, CaseIterable {
     case episode
     /// The pet's impression of the owner, drawn from several episodes ("the owner has been staying up late").
     case insight
+    /// Something the owner must not miss at a given time: a reminder they asked for, or an event of their calendar.
+    /// Importance 10; `followUp` is when to bring it up, and until then it stays in the pet's background.
+    case reminder
 }
 
 /// One entry of the memory bank.
@@ -67,6 +70,8 @@ struct Memory: Codable, Identifiable, Equatable {
         case .fact: base = 30
         case .episode: base = 2
         case .insight: base = 4
+        // Kept until given (a pending follow-up never fades); once given (importance 4), gone within about a week.
+        case .reminder: base = 0.25
         }
         return base * Double(max(1, min(10, importance))) * Double(1 + recalls)
     }
@@ -84,7 +89,7 @@ struct Memory: Codable, Identifiable, Equatable {
     }
 
     /// Always in the pet's background (Letta's core memory): manual entries and facts of importance 8 or more.
-    var pinned: Bool { source == "manual" || (kind == .fact && importance >= 8) }
+    var pinned: Bool { source == "manual" || (kind == .fact && importance >= 8) || (kind == .reminder && followUp != nil) }
 
     /// The memory came up: it lasts longer from now on. A long conversation about one thing counts once
     /// (at most one recall in six hours).
@@ -227,6 +232,9 @@ enum MemoryRecall {
         case .fact: s += "[\(ReminderRules.dayStamp(m.created, calendar))] \(m.text)"
         case .episode: s += "[\(dayLabel(m.created, now: now, calendar: calendar))] \(m.text)"
         case .insight: s += m.text
+        case .reminder:
+            s += "【提醒】" + (m.followUp.map { "[\(minuteStamp($0, calendar: calendar)) 提醒] " } ?? "[已提醒] ") + m.text
+            return s
         }
         if let at = m.followUp {
             s += "（打算 \(minuteStamp(at, calendar: calendar)) 问问" + (m.followUpNote.map { "：\($0)" } ?? "") + "）"
@@ -236,7 +244,8 @@ enum MemoryRecall {
 
     /// Memories grouped under headings: facts, then episodes (oldest first, as they happened), then impressions.
     static func render(_ memories: [Memory], now: Date, calendar: Calendar) -> String {
-        let groups: [(MemoryKind, String)] = [(.fact, "关于主人的长期事实"), (.episode, "经历（情景记忆，越久越模糊）"), (.insight, "你对主人的印象")]
+        let groups: [(MemoryKind, String)] = [(.reminder, "主人交代的提醒与日程（重要，到点务必提醒）"), (.fact, "关于主人的长期事实"),
+                                              (.episode, "经历（情景记忆，越久越模糊）"), (.insight, "你对主人的印象")]
         var parts: [String] = []
         for (kind, title) in groups {
             let items = memories.filter { $0.kind == kind }.sorted { $0.created < $1.created }

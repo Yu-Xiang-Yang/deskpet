@@ -37,6 +37,25 @@ enum DesktopItems {
     /// Kinds of item the pet tells apart by name.
     enum Kind: Equatable {
         case screenshot, image, pdf, document, spreadsheet, slides, installer, archive, video, audio, code, folder, other
+
+        /// The kind in words, for telling the pet's mind what it is looking at.
+        var label: String {
+            switch self {
+            case .screenshot: return "截图"
+            case .image: return "图片"
+            case .pdf: return "PDF"
+            case .document: return "文档"
+            case .spreadsheet: return "表格"
+            case .slides: return "幻灯片"
+            case .installer: return "安装包"
+            case .archive: return "压缩包"
+            case .video: return "视频"
+            case .audio: return "音频"
+            case .code: return "代码"
+            case .folder: return "文件夹"
+            case .other: return "文件"
+            }
+        }
     }
 
     static func kind(of name: String) -> Kind {

@@ -103,20 +103,44 @@ final class PetMind {
         case followUp
         /// The owner came back after some minutes away.
         case returned(minutes: Int)
+        /// The pet has just started (the Mac was started, or the pet opened again).
+        case launched
+        /// The owner patted its head.
+        case patted
+        /// Music started (the pet decides whether to sway to it), or stopped after `minutes`.
+        case music
+        case musicStopped(minutes: Int)
+        /// A moment of the owner's day from Settings → Reminders (a meal time, work, a long stretch at the computer,
+        /// water), described.
+        case routine(String)
+        /// Something happened, described: what the pet did or saw, an alert (weather, a balance running low).
+        case event(String)
 
         var name: String {
             switch self {
             case .idle: return "idle"
             case .followUp: return "follow_up"
             case .returned: return "returned"
+            case .launched: return "launched"
+            case .patted: return "patted"
+            case .music: return "music"
+            case .musicStopped: return "music_stopped"
+            case .routine: return "routine"
+            case .event: return "event"
             }
         }
 
         var prompt: String {
             switch self {
             case .idle: return "一段安静的时间过去了，你在桌面上待着，想到了一些事"
-            case .followUp: return "到了你之前打算跟进某件事的时间"
+            case .followUp: return "到了要提醒主人的事或要跟进的事的时间"
             case .returned(let minutes): return "主人离开约 \(minutes) 分钟后，刚回到电脑前"
+            case .launched: return "你刚刚启动（主人开机或重新打开了你），这是今天（或这次）见到主人的时刻"
+            case .patted: return "主人刚刚摸了摸你的头（这是主人在和你互动，通常值得回应）"
+            case .music: return "主人开始播放音乐了。除念头外，请用 dance 决定要不要跟着音乐摇摆"
+            case .musicStopped(let minutes): return "音乐停了（主人刚才听了约 \(minutes) 分钟）"
+            case .routine(let what): return "到了主人作息中的一个时刻：\(what)"
+            case .event(let what): return what
             }
         }
     }
@@ -135,8 +159,17 @@ final class PetMind {
     private let conversations = ConversationStore.shared
     private unowned let brain: PetBrain
 
+    /// The pet chose (not) to sway to the music that started.
+    var onDance: ((Bool) -> Void)?
+    /// A reminder was given: also as a system notification, for an owner away from the screen.
+    var notify: ((String) -> Void)?
+
     private(set) var thinking = false
     private(set) var digesting = false
+    /// Moments that came while the pet was thinking, thought about next.
+    private var queued: [Trigger] = []
+    /// Since when the owner has been using the computer without a break of 5 minutes.
+    private var activeSince: Date?
     private var nextDigest = Date.distantPast
     private var nextFollowUp = Date.distantPast
     private var lastFade = Date.distantPast
@@ -145,8 +178,15 @@ final class PetMind {
         self.brain = brain
     }
 
-    /// Every minute: forget what faded (hourly), consolidate a finished stretch of conversation, follow up what is due.
+    /// Every minute: forget what faded (hourly), consolidate a finished stretch of conversation, give due reminders,
+    /// follow up what is due.
     func tick(now: Date = Date()) {
+        activeSince = PetBrain.idleSeconds < 300 ? activeSince ?? now : nil
+        // Reminders and events of the calendar are given when due, whatever the hour or the owner is doing.
+        if memory.dueFollowUps(at: now).contains(where: { $0.kind == .reminder }) {
+            brain.wakeForReminder()
+            think(.followUp, now: now)
+        }
         if now.timeIntervalSince(lastFade) >= 3600 {
             lastFade = now
             let gone = memory.forgetFaded(at: now)
@@ -285,7 +325,7 @@ final class PetMind {
     /// of a conversation (three minutes after the owner's last message) and not within ten minutes of another remark;
     /// at most one attempt in five minutes.
     private func followUpIfDue(_ now: Date) {
-        guard !thinking, now >= nextFollowUp, !memory.dueFollowUps(at: now).isEmpty else { return }
+        guard !thinking, now >= nextFollowUp, memory.dueFollowUps(at: now).contains(where: { $0.kind != .reminder }) else { return }
         guard (8..<23).contains(memory.calendar.component(.hour, from: now)), brain.mayRemark, PetBrain.idleSeconds < 120 else { return }
         if let last = state.lastRemark, now.timeIntervalSince(last) < 600 { return }
         if let owner = lastOwnerMessage, now.timeIntervalSince(owner) < 180 { return }
@@ -316,7 +356,24 @@ final class PetMind {
             if state.unanswered > 0 { s += "，主人没有回应（已连续 \(state.unanswered) 次）" }
             parts.append(s)
         }
-        return "主人状态：" + parts.joined(separator: "；") + "。"
+        if let since = activeSince, now.timeIntervalSince(since) >= 600 {
+            parts.append("主人已连续使用电脑约 \(Self.span(now.timeIntervalSince(since)))（中间没有离开 5 分钟以上）")
+        }
+        if brain.musicPlaying { parts.append("主人正在听音乐") }
+        var text = "主人状态：" + parts.joined(separator: "；") + "。"
+        let routine = Self.routine(settings.reminders)
+        if !routine.isEmpty { text += "\n主人的作息参考（由主人在设置中填写，供你判断何时关心，不必照本宣科）：" + routine + "。" }
+        return text
+    }
+
+    /// The owner's day as set in Settings → Reminders, in words; empty when nothing is set.
+    static func routine(_ r: ReminderConfig) -> String {
+        var parts: [String] = []
+        if r.mealsEnabled, !r.mealTimes.isEmpty { parts.append("用餐时间 " + r.mealTimes.joined(separator: "、")) }
+        if r.workEnabled { parts.append("工作时间 \(r.workStart)–\(r.workEnd)" + (r.weekdaysOnly ? "（仅工作日）" : "")) }
+        if r.sedentaryEnabled { parts.append("希望连续坐约 \(r.sedentaryMinutes) 分钟后起来活动") }
+        if r.waterEnabled { parts.append("希望大约每 \(r.waterMinutes) 分钟喝一次水") }
+        return parts.joined(separator: "；")
     }
 
     static var thoughtPrompt: String {
@@ -327,14 +384,19 @@ final class PetMind {
         此刻主人没有在跟你说话，你在自己想事情。请像真正陪在主人身边的伙伴那样，产生 1–3 个此刻自然会有的念头\
         （可以是主人的近况、到期要跟进的事、时间与天气、你自己的感受等），并为每个念头评估“现在把它说出口”的意愿 motivation（1–5）：
         1 = 完全没必要说；2 = 可说可不说；3 = 有点想说；4 = 很想说，且时机合适；5 = 现在就该说（如到期跟进一件重要的事）。
+        你要像家人一样关心主人的身体与作息：到了饭点提醒吃饭；连续用电脑很久时提醒起来活动、让眼睛休息；隔一段时间提醒喝水；\
+        深夜提醒休息；上下班时打个招呼；主人听音乐、摸你、回来时自然地回应。但要自然、简短、不说教，同一件事提醒过一次就别反复说\
+        （看“你最近主动说过的话”），主人正专注时宁可晚一点。
+        “到期要跟进的事”里标注【提醒】的，是主人交代的提醒或日历日程，非常重要：必须现在提醒，给它的念头 motivation 填 5，say 里说清是什么事、几点。
         评分时考虑：与主人当下状态的相关性；是否有新信息或未了结的话题（跟进具体的事比泛泛的寒暄更值得说）；时机（主人可能正在专注工作，\
         深夜不宜闲聊）；是否与你最近说过的话重复；主人连续没有回应时要更克制。大多数时候安静陪着就好，不必为了说话而说话。
         只输出一个 JSON 对象，不输出任何其它文字：
-        {"thoughts": [{"thought": "内心的想法（不会说出口）", "say": "如果说出口会说的话", "motion": "动作", "motivation": 3, "follow_up": null}]}
+        {"thoughts": [{"thought": "内心的想法（不会说出口）", "say": "如果说出口会说的话", "motion": "动作", "motivation": 3, "follow_up": null}], "dance": null}
         - say：口语化、简短（一般不超过 40 个字），可以使用颜文字，使用主人惯用的语言；跟进时自然地问起，不要说“根据记忆”“我记得你说过”，\
         也不要一次问好几件事。
         - motion：从 \(PetMotion.allCases.map(\.rawValue).joined(separator: ", ")) 中选择最贴合语气的一个。
-        - follow_up：这个念头是在跟进“到期要跟进的事”中的某一件时，填它的编号（如 "E1"），否则为 null。
+        - follow_up：这个念头是在跟进“到期要跟进的事”中的某一件时，填它的编号（如 "E1"、"R1"），否则为 null。
+        - dance：只在触发是“主人开始播放音乐”时填 true（跟着音乐摇摆）或 false（不摇），其它时候为 null。
         """
     }
 
@@ -342,12 +404,23 @@ final class PetMind {
     /// threshold (Talkativeness, raised by unanswered remarks) and repeats nothing said lately. Due follow-ups are part
     /// of what it thinks about; those it lets pass are retried 45 minutes later.
     func think(_ trigger: Trigger, now: Date = Date(), completion: ((Outcome) -> Void)? = nil) {
-        guard !thinking, Providers.configured(settings) else { completion?(.failed); return }
-        thinking = true
+        guard !thinking else {
+            if !queued.contains(trigger), queued.count < 3 { queued.append(trigger) }
+            return
+        }
         let calendar = memory.calendar
-        let due = settings.followUps ? Array(memory.dueFollowUps(at: now).prefix(3)) : []
-        let labels = Dictionary(uniqueKeysWithValues: due.enumerated().map { ("E\($0.offset + 1)", $0.element.id) })
-        let dueLines = due.enumerated().map { MemoryRecall.line($0.element, now: now, calendar: calendar, label: "E\($0.offset + 1)") }
+        // Due reminders always, then the episodes to follow up (when that is on); at most three in all.
+        let dueAll = memory.dueFollowUps(at: now)
+        let due = Array((dueAll.filter { $0.kind == .reminder } + (settings.followUps ? dueAll.filter { $0.kind != .reminder } : [])).prefix(3))
+        func label(_ m: Memory, _ i: Int) -> String { (m.kind == .reminder ? "R" : "E") + "\(i + 1)" }
+        let labels = Dictionary(uniqueKeysWithValues: due.enumerated().map { (label($0.element, $0.offset), $0.element.id) })
+        let dueLines = due.enumerated().map { MemoryRecall.line($0.element, now: now, calendar: calendar, label: label($0.element, $0.offset)) }
+        guard Providers.configured(settings) else {
+            conclude(trigger, thoughts: nil, dance: nil, failure: tr("没有配置模型服务。", "No model service."), threshold: 5, remarks: [],
+                     labels: labels, due: due, now: now, completion: completion)
+            return
+        }
+        thinking = true
         let recent = conversations.daily().messages.filter { $0.role != .error }.suffix(8)
         let query = (recent.map(\.text) + due.map(\.text)).joined(separator: "\n")
         let block = memory.recallBlock(for: query, at: now).text
@@ -365,29 +438,36 @@ final class PetMind {
             guard let self else { return }
             let context = await self.brain.context()
             var parsed: [InnerThought]?
+            var dance: Bool?
             var error: String?
             do {
                 let provider = try Providers.current(self.settings)
                 let turn = try await provider.send(LLMRequest(system: system, messages: [provider.userMessage(context + "\n" + request)],
                                                               effort: "low", noThinking: true, maxTokens: 1500, jsonSchema: InnerThoughts.schema))
                 parsed = InnerThoughts.parse(turn.text)
+                dance = InnerThoughts.dance(turn.text)
                 if parsed == nil { error = tr("念头无法解析。", "The thoughts could not be read.") }
             } catch let e {
                 error = e.localizedDescription
             }
-            let thoughts = parsed, failure = error
+            let thoughts = parsed, failure = error, sway = dance
             await MainActor.run {
-                self.conclude(trigger, thoughts: thoughts, failure: failure, threshold: threshold, remarks: remarks,
-                              labels: labels, due: due.map(\.id), now: now, completion: completion)
+                self.conclude(trigger, thoughts: thoughts, dance: sway, failure: failure, threshold: threshold, remarks: remarks,
+                              labels: labels, due: due, now: now, completion: completion)
             }
         }
     }
 
-    private func conclude(_ trigger: Trigger, thoughts: [InnerThought]?, failure: String?, threshold: Double, remarks: [String],
-                          labels: [String: UUID], due: [UUID], now: Date, completion: ((Outcome) -> Void)?) {
+    private func conclude(_ trigger: Trigger, thoughts: [InnerThought]?, dance: Bool?, failure: String?, threshold: Double,
+                          remarks: [String], labels: [String: UUID], due: [Memory], now: Date, completion: ((Outcome) -> Void)?) {
         thinking = false
+        defer {
+            if !queued.isEmpty { think(queued.removeFirst()) }
+        }
+        if trigger == .music { onDance?(dance ?? false) }
         guard let thoughts else {
             state.record(.init(date: now, trigger: trigger.name, note: failure))
+            giveReminders(due, except: nil)
             completion?(.failed)
             return
         }
@@ -396,13 +476,18 @@ final class PetMind {
         }
         var followed: UUID?
         let outcome: Outcome
-        switch InnerThoughts.choose(thoughts, threshold: threshold, recent: remarks) {
-        case .success(let t) where brain.mayRemark:
-            brain.remark(t.say, motion: t.motion)
+        let reminderIDs = Set(due.filter { $0.kind == .reminder }.map(\.id))
+        let chosen = InnerThoughts.choose(thoughts, threshold: threshold, recent: remarks)
+        // A thought that gives a reminder is said whatever the pet is doing.
+        let givesReminder: Bool = { if case .success(let t) = chosen, let l = t.followUp, let id = labels[l] { return reminderIDs.contains(id) }; return false }()
+        switch chosen {
+        case .success(let t) where brain.mayRemark || givesReminder:
+            brain.remark(t.say, motion: t.motion, reminder: givesReminder)
             state.spoke(t.say, at: Date())
             if let label = t.followUp, let id = labels[label] {
                 memory.followedUp(id, at: Date())
                 followed = id
+                if reminderIDs.contains(id) { notify?(t.say) }
             }
             state.record(.init(date: now, trigger: trigger.name, thoughts: lines, said: t.say))
             outcome = .spoke
@@ -419,9 +504,23 @@ final class PetMind {
             state.record(.init(date: now, trigger: trigger.name, thoughts: lines, note: note))
             outcome = .silent
         }
-        // Due follow-ups the pet did not ask about wait for a better moment.
-        for id in due where id != followed { memory.postponeFollowUp(id, retry: Date().addingTimeInterval(45 * 60)) }
+        // Owner patted the pet and it kept quiet: it still reacts with the motion it thought of.
+        if trigger == .patted, outcome != .spoke, let top = thoughts.max(by: { $0.motivation < $1.motivation }) { brain.react(top.motion) }
+        // Reminders are never left out; due follow-ups the pet did not ask about wait for a better moment.
+        giveReminders(due, except: followed)
+        for m in due where m.kind != .reminder && m.id != followed { memory.postponeFollowUp(m.id, retry: Date().addingTimeInterval(45 * 60)) }
         completion?(outcome)
+    }
+
+    /// The due reminders that no thought gave (the pet kept quiet, or could not think): said as they are, with a
+    /// notification.
+    private func giveReminders(_ due: [Memory], except given: UUID?) {
+        for m in due where m.kind == .reminder && m.id != given {
+            let text = m.text.hasPrefix("日程") || m.text.hasPrefix("提醒") ? m.text : tr("提醒：", "Reminder: ") + m.text
+            brain.remark(text, motion: .surprised, reminder: true)
+            notify?(text)
+            memory.followedUp(m.id, at: Date())
+        }
     }
 
     /// Plain text of the state for test runs (DESKPET_DIR/mind.txt).

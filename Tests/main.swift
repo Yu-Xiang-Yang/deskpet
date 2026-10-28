@@ -859,6 +859,10 @@ do {
     let files = (0..<10).map { CloudSpeechCache.File(name: "f\($0)", size: 10, used: day.addingTimeInterval(Double($0))) }
     check(CloudSpeechCache.evictions(files, limit: 100).isEmpty, "Voice cache: nothing to evict within the limit")
     check(CloudSpeechCache.evictions(files.shuffled(), limit: 80) == ["f0", "f1", "f2", "f3"], "Voice cache: least recently used first, down to 80%")
+    check(CloudSpeech.isLocal(baseURL: "http://127.0.0.1:8790/v1") && CloudSpeech.isLocal(baseURL: " http://localhost:8000/v1 ")
+          && !CloudSpeech.isLocal(baseURL: CloudSpeech.siliconFlowURL) && !CloudSpeech.isLocal(baseURL: ""), "Local speech services")
+    check(CloudSpeech.isLocalVoice(baseURL: "http://127.0.0.1:8790/v1") && !CloudSpeech.isLocalVoice(baseURL: "http://127.0.0.1:8000/v1")
+          && !CloudSpeech.isLocalVoice(baseURL: "https://example.com:8790/v1"), "DeskPet's own local voice")
     var queue = SpeechQueue<Int>(capacity: 2)
     check(queue.push(1).isEmpty && queue.push(2).isEmpty && queue.push(3) == [1], "Speech queue drops the oldest")
     check(queue.pop() == 2 && queue.removeAll() == [3] && queue.pop() == nil && queue.isEmpty, "Speech queue order and clearing")
@@ -896,6 +900,46 @@ do {
     check([narration, narration, song, narration, narration, narration].allSatisfy { !video.add($0) }, "Narration over music is not music")
     judge.reset()
     check(!judge.isMusic, "Judge reset")
+}
+
+// MARK: Reminders as memories, thoughts that decide
+
+do {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+    let now = cal.date(from: DateComponents(year: 2026, month: 10, day: 29, hour: 10, minute: 0))!
+    var r = Memory(text: "提醒：下午三点开会", kind: .reminder, importance: 10, source: "remind")
+    r.followUp = now.addingTimeInterval(3600)
+    check(r.pinned && !r.faded(at: now.addingTimeInterval(30 * 86400)), "Reminder: in the background and never fading until given")
+    let line = MemoryRecall.line(r, now: now, calendar: cal, label: "R1")
+    check(line.contains("R1") && line.contains("【提醒】") && line.contains("11:00") && line.contains("开会"), "Reminder line (\(line))")
+    var given = r
+    given.followUp = nil
+    given.importance = 4
+    given.recalls = 1
+    given.recalled = now
+    check(!given.pinned && MemoryRecall.line(given, now: now, calendar: cal).contains("已提醒")
+          && given.faded(at: now.addingTimeInterval(10 * 86400)) && !given.faded(at: now.addingTimeInterval(86400)),
+          "Given reminder: out of the background, faded within ten days")
+    let rendered = MemoryRecall.render([r, Memory(text: "主人对花粉过敏", kind: .fact, importance: 8)], now: now, calendar: cal)
+    check(rendered.hasPrefix("### 主人交代的提醒与日程"), "Reminders come first in the background")
+
+    check(InnerThoughts.dance(#"{"thoughts": [], "dance": true}"#) == true && InnerThoughts.dance(#"{"thoughts": [], "dance": false}"#) == false
+          && InnerThoughts.dance(#"{"thoughts": [], "dance": null}"#) == nil && InnerThoughts.dance(#"{"thoughts": []}"#) == nil
+          && InnerThoughts.dance("not json") == nil, "Thoughts: whether to sway to the music")
+    check(InnerThoughts.parse(#"{"thoughts": [{"thought": "a", "say": "b", "motion": "happy", "motivation": 4, "follow_up": "r1"}], "dance": true}"#)?
+          .first?.followUp == "R1", "Thoughts still parse beside dance, reminder labels upper-cased")
+
+    let meeting = CalendarEvent(id: "evt", title: "组会", start: cal.date(bySettingHour: 14, minute: 0, second: 0, of: now)!,
+                                end: cal.date(bySettingHour: 15, minute: 30, second: 0, of: now)!, allDay: false, location: "会议室 A")
+    let m = CalendarAlerts.reminder(meeting, leadMinutes: 10, calendar: cal)
+    check(m.source == "calendar:" + meeting.key && m.text == "日程：10月29日 星期四 14:00–15:30 组会（会议室 A）"
+          && m.at == meeting.start.addingTimeInterval(-600), "Calendar event as a reminder (\(m.text))")
+    let holiday = CalendarEvent(id: "h", title: "休假", start: cal.startOfDay(for: now), end: cal.startOfDay(for: now).addingTimeInterval(86400),
+                                allDay: true, location: nil)
+    let h = CalendarAlerts.reminder(holiday, leadMinutes: 10, calendar: cal)
+    check(h.text == "日程：10月29日 星期四 全天 休假" && cal.component(.hour, from: h.at) == 8 && cal.component(.minute, from: h.at) == 30,
+          "All-day event: given at 08:30 (\(h.text))")
 }
 
 // MARK: Reaching for the pointer

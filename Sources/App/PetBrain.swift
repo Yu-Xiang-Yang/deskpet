@@ -18,7 +18,6 @@ final class PetBrain {
     private var busy = false
     private var chatterTimer: Timer?
     private var idleTimer: Timer?
-    private var chatterCount = 0
     private var lastChatter = Date()
     private(set) var sleeping = false
     private var sleptAt: Date?
@@ -74,11 +73,12 @@ final class PetBrain {
             : "每 \(settings.chatterMinutes) 分钟一次"
         var lines: [String] = [
             "- 对话：主人点击你的身体或按全局快捷键（\(settings.hotKey.title)）打开输入框与你聊天；你以气泡回复并做出动作。",
-            "- 一次性提醒：主人说“X 分钟后提醒我……”时由你经 remind 字段设定，到时以气泡与系统通知提醒，通知上可“10 分钟后再提醒”。",
-            "- 作息提醒（设置 → 提醒）：\(routineText)。",
+            "- 提醒：主人说“X 分钟后提醒我……”时由你经 remind 字段设定；它作为重要程度最高的记忆保存，到点时你会想起并提醒，"
+                + "同时发系统通知（通知上可“10 分钟后再提醒”）。",
+            "- 关心作息：不再有固定的定时提醒；主人在“设置 → 提醒”中填写的作息（\(routineText)）到点时会让你想一想，由你判断要不要、怎样关心。",
             "- 专注计时：右键菜单“开始专注 25 分钟”，结束后提醒休息 5 分钟。",
             "- 天气：上下文附带主人所在地天气；可经 weather_city 查询其它城市。天气变化提醒\(on(settings.weatherAlerts))\(cityText)。",
-            "- 日历日程提醒\(on(settings.calendarAlerts))：读取系统“日历”App，每天首次见面时播报当天日程，带时间的日程提前 \(settings.calendarLeadMinutes) 分钟提醒；\(calendarText)",
+            "- 日历日程\(on(settings.calendarAlerts))：读取系统“日历”App，今明两天的日程作为提醒记入记忆库，带时间的日程提前 \(settings.calendarLeadMinutes) 分钟由你提醒；\(calendarText)",
             "- 记忆库：自动记住重要信息\(on(settings.autoMemory))；分为长期事实、经历（每段对话结束后整理）与印象，经历与印象若不再被提起会逐渐淡忘，"
                 + "被再次提起时记得更久；主人可让你记住或忘掉某事，也可在“设置 → 记忆库”中查看与编辑。",
             "- \(research)：右键菜单进入，是你性能最高的状态，可检索 arXiv 与 Semantic Scholar 论文、新闻、股票行情、天气与网页，以 Markdown 与 LaTeX 作答，适合长篇学术问题。",
@@ -308,90 +308,50 @@ final class PetBrain {
         }
     }
 
+    /// Lets the pet think about a moment (PetMind) when its inner life is on; otherwise it keeps quiet.
+    func consider(_ trigger: PetMind.Trigger) {
+        guard settings.innerThoughts else { return }
+        mind.think(trigger)
+    }
+
+    /// The motion the pet thought of, without words (it chose to keep quiet when patted).
+    func react(_ motion: PetMotion) {
+        pet.play(motion)
+    }
+
+    /// A reminder is due: the pet wakes up for it.
+    func wakeForReminder() { wake() }
+
     /// A remark of the pet's own accord (an inner thought said aloud): shown, and kept in the day's chat so that the
-    /// owner can answer it.
-    func remark(_ text: String, motion: PetMotion) {
+    /// owner can answer it. A reminder stays longer, in the reminder style.
+    func remark(_ text: String, motion: PetMotion, reminder: Bool = false) {
         let raw: JSON = ["reply": .string(text), "motion": .string(motion.rawValue), "remind": nil, "weather_city": nil, "remember": nil,
                          "forget": nil, "open_app": nil, "add_event": nil, "agent_task": nil]
         var c = store.daily()
         c.messages.append(StoredMessage(role: .assistant, text: text, raw: raw.compactString))
         store.save(c)
         pet.play(motion)
-        pet.say(text)
-        pet.meow(MeowKind(motion), chance: 0.3)
-    }
-
-    /// A one-off instruction to the persona, not stored in the conversation (remarks, reminder wording).
-    private func oneShot(_ instruction: String, completion: @escaping (PetReply?) -> Void) {
-        Task { [weak self] in
-            guard let self else { return }
-            let reply: PetReply?
-            do {
-                let provider = try Providers.current(self.settings)
-                let message = provider.userMessage(await self.context() + "\n（系统指令：\(instruction)）")
-                let turn = try await provider.send(LLMRequest(
-                    system: self.systemPrompt, messages: [message], effort: "low", noThinking: true, maxTokens: 2000, jsonSchema: PetReply.schema))
-                reply = PetReply.parse(turn.text)
-            } catch {
-                reply = nil
-            }
-            await MainActor.run { completion(reply) }
-        }
+        if reminder { pet.say(text, kind: "reminder", ms: 15000) } else { pet.say(text) }
+        pet.meow(MeowKind(motion), chance: reminder ? 1 : 0.3)
     }
 
     // MARK: Reactions
 
+    /// The owner patted the pet: a purr at once, then it thinks of how to respond (words and motion).
     func pat() {
         wake()
-        let lines: [(String, PetMotion)] = [
-            (tr("嘿嘿，被摸头了～", "Hehe, head pats~"), .shy),
-            (tr("再摸就要长不高啦！", "I'll stop growing if you keep doing that!"), .shy),
-            (tr("诶嘿嘿 (*/ω＼*)", "Ehehe (*/ω＼*)"), .happy),
-            (tr("今天也要加油哦！", "Let's do our best today!"), .happy),
-            (tr("不许摸！……好吧，再摸一下。", "No touching! …Okay, one more."), .shy),
-            (tr("唔……好舒服……", "Mm… that's nice…"), .sleepy),
-        ]
-        let (text, motion) = lines.randomElement()!
-        pet.play(motion)
-        pet.say(text)
         pet.meow(.purr)
+        MindState.shared.ownerSpoke()
+        consider(.patted)
     }
 
+    /// The first moment of a launch (also right after the login intro): the pet thinks of what to say, if anything.
     func greet() {
-        let hour = Calendar.current.component(.hour, from: Date())
-        let text: String
-        switch hour {
-        case 5..<11: text = tr("早上好！今天也一起加油吧～", "Good morning! Let's do our best today~")
-        case 11..<14: text = tr("中午好～记得按时吃饭哦！", "Good afternoon~ Don't skip lunch!")
-        case 14..<18: text = tr("下午好！需要我帮忙随时点我～", "Good afternoon! Click me whenever you need help~")
-        case 18..<23: text = tr("晚上好～今天辛苦啦！", "Good evening~ You did great today!")
-        default: text = tr("这么晚还没睡呀……要注意休息哦。", "Still up this late… please get some rest.")
-        }
-        pet.play(.wave)
-        pet.say(text)
-        pet.meow(.meow)
+        consider(.launched)
     }
 
-    /// The first words after the login intro: the AI reporting for duty, with a word for the time of day.
     func welcomeBack() {
-        let name = settings.petName.trimmingCharacters(in: .whitespaces).isEmpty ? "DeskPet" : settings.petName
-        let called = settings.userName.trimmingCharacters(in: .whitespaces)
-        let user = called.isEmpty ? NSFullUserName().split(separator: " ").first.map(String.init) ?? NSUserName() : called
-        let hour = Calendar.current.component(.hour, from: Date())
-        let opening = [tr("您好，\(user)。\(name) AI 已上线，欢迎回来。", "Hello, \(user). \(name) AI is online. Welcome back."),
-                       tr("\(name) AI 启动完毕，各项系统运转正常。\(user)，欢迎回来。", "\(name) AI is up and all systems are nominal. Welcome back, \(user).")]
-            .randomElement()!
-        let note: String
-        switch hour {
-        case 5..<11: note = tr("早上好，今天的提醒与日程已就绪。", "Good morning; today's reminders and schedule are ready.")
-        case 11..<14: note = tr("现在是午间，记得按时用餐。", "It's midday; remember to eat on time.")
-        case 14..<18: note = tr("下午的工作时段已开启，我随时待命。", "The afternoon session is open; I'm standing by.")
-        case 18..<23: note = tr("今天辛苦了，晚间的事务可以交给我。", "Long day. Hand the evening's chores to me.")
-        default: note = tr("夜已深，建议尽早休息。", "It's late; I suggest getting some rest soon.")
-        }
-        pet.play(.wave)
-        pet.say(opening + note, ms: 12000)
-        pet.meow(.meow)
+        consider(.launched)
     }
 
     /// The agent's report on a task: shown in a bubble and kept in the day's chat (as the pet's own reply), so that
@@ -409,66 +369,21 @@ final class PetBrain {
         pet.meow(.trill)
     }
 
-    /// Reminder delivery: local wording, optionally rephrased by the model in the persona's voice.
-    func remind(_ text: String, motion: PetMotion) {
+    /// A notice of a tool the owner started (the focus timer): said as it is.
+    func notice(_ text: String, motion: PetMotion) {
         wake()
-        pet.meow(.meow)
-        guard settings.aiReminderWording else {
-            pet.play(motion)
-            pet.say(text, kind: "reminder", ms: 12000)
-            return
-        }
-        oneShot("请用你的语气简短地提醒用户：\(text)") { [weak self] reply in
-            self?.pet.play(reply?.motion ?? motion)
-            self?.pet.say(reply?.reply ?? text, kind: "reminder", ms: 12000)
-        }
+        pet.play(motion)
+        pet.say(text, kind: "reminder", ms: 12000)
     }
 
     // MARK: Spontaneous remarks
 
+    /// Every chatter interval the pet thinks (PetMind) and speaks only when a thought is strong enough.
     private func maybeChatter() {
         let minutes = settings.chatterMinutes
         guard minutes > 0, mayRemark, !mind.thinking, Date().timeIntervalSince(lastChatter) >= Double(minutes) * 60 else { return }
         lastChatter = Date()
-        chatterCount += 1
-        if settings.innerThoughts {
-            // The pet thinks and speaks only when a thought is strong enough; local phrases only when it cannot think.
-            mind.think(.idle) { [weak self] outcome in
-                if outcome == .failed { self?.localChatter() }
-            }
-            return
-        }
-        let every = settings.chatterLLMEvery
-        if every > 0, chatterCount % every == 0 {
-            oneShot("现在请你主动对用户说一句简短的闲聊、鼓励或关心的话，可以结合当前时间，不要提问太多。") { [weak self] reply in
-                guard let self else { return }
-                if let reply { self.present(reply) } else { self.localChatter() }
-            }
-        } else {
-            localChatter()
-        }
-    }
-
-    private func localChatter() {
-        let hour = Calendar.current.component(.hour, from: Date())
-        var pool: [(String, PetMotion)] = [
-            (tr("在忙什么呀？", "What are you working on?"), .think),
-            (tr("要不要喝口水？", "How about a sip of water?"), .wave),
-            (tr("坐久了记得伸个懒腰～", "Stretch a little if you've been sitting long~"), .happy),
-            (tr("我在这里陪着你哦。", "I'm right here with you."), .shy),
-            (tr("♪～哼哼～♪", "♪~hmm hmm~♪"), .happy),
-            (tr("遇到难题可以右键点我，打开科研模式～", "Stuck on a problem? Right-click me for research mode~"), .nod),
-            (tr("眼睛累了就看看远处吧。", "Rest your eyes by looking into the distance."), .nod),
-            (tr("刚才趁你不注意，我偷偷数了你的桌面图标……数不清。", "While you weren't looking I tried counting your desktop icons… too many."), .think),
-            (tr("再不理我，我就躲到屏幕边上去！", "Ignore me any longer and I'll go hide at the edge of the screen!"), .shy),
-            (tr("嘿嘿，刚刚是不是挡住你的鼠标了？", "Hehe, was I in the way of your mouse just now?"), .happy),
-        ]
-        if hour >= 23 || hour < 5 { pool.append((tr("已经很晚了，早点休息吧……", "It's late, maybe get some sleep…"), .sleepy)) }
-        if (14...16).contains(hour) { pool.append((tr("下午容易犯困，起来走走吧！", "Afternoons get sleepy, take a walk!"), .wave)) }
-        let (text, motion) = pool.randomElement()!
-        pet.play(motion)
-        pet.say(text)
-        pet.meow(MeowKind(motion), chance: 0.3)
+        consider(.idle)
     }
 
     // MARK: Sleep
@@ -486,22 +401,9 @@ final class PetBrain {
         } else if sleeping, idle < 5 {
             let away = sleptAt.map { Date().timeIntervalSince($0) } ?? 0
             wake()
-            // After a longer absence the pet thinks of what to say (it may ask how something went, or just stretch).
-            if settings.innerThoughts, away >= 30 * 60 {
-                pet.play(.stretch)
-                mind.think(.returned(minutes: Int(away / 60))) { [weak self] outcome in
-                    if outcome == .failed { self?.welcomeBackLine() }
-                }
-            } else {
-                welcomeBackLine()
-            }
+            // Back after an absence: the pet thinks of what to say (it may ask how something went, or say nothing).
+            consider(.returned(minutes: max(1, Int(away / 60))))
         }
-    }
-
-    private func welcomeBackLine() {
-        pet.say(tr("啊，你回来啦！", "Oh, welcome back!"))
-        pet.meow(.trill)
-        pet.play(.wave)
     }
 
     /// Leaves the sleeping state without the "welcome back" line (the login intro greets instead).

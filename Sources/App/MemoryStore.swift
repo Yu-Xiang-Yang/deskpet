@@ -146,12 +146,52 @@ final class MemoryStore: ObservableObject {
         items.filter { $0.followUp.map { $0 <= now } == true }.sorted { $0.followUp! < $1.followUp! }
     }
 
-    /// The pet asked about the episode: no further follow-up, and the episode came up.
+    /// The pet asked about the episode (or gave the reminder): no further follow-up, and the memory came up. A given
+    /// reminder is no longer important and fades within days.
     func followedUp(_ id: UUID, at now: Date) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
         items[i].followUp = nil
         items[i].recall(at: now)
+        if items[i].kind == .reminder { items[i].importance = min(items[i].importance, 4) }
         save()
+    }
+
+    // MARK: Reminders
+
+    /// A reminder the owner asked for: importance 10, brought up at `at`.
+    @discardableResult
+    func addReminder(_ text: String, at: Date, source: String = "remind") -> UUID {
+        var m = Memory(text: text.trimmingCharacters(in: .whitespacesAndNewlines), kind: .reminder, importance: 10, source: source)
+        m.followUp = at
+        items.insert(m, at: 0)
+        save()
+        return m.id
+    }
+
+    /// The calendar's events as reminders (CalendarAlerts.reminder): new ones are added (to be given at once when their
+    /// time has passed), changed ones updated, and those of events that are gone (deleted or moved) are removed while
+    /// still to come. Given reminders stay as they are.
+    func syncCalendar(_ entries: [(source: String, text: String, at: Date)], now: Date) {
+        let keep = Set(entries.map(\.source))
+        let before = items.count
+        items.removeAll { $0.kind == .reminder && $0.source.hasPrefix("calendar:") && $0.followUp != nil && !keep.contains($0.source) }
+        var changed = items.count != before
+        for e in entries {
+            if let i = items.firstIndex(where: { $0.source == e.source }) {
+                guard items[i].followUp != nil else { continue }
+                if items[i].text != e.text || items[i].followUp != max(e.at, now) && e.at > now {
+                    items[i].text = e.text
+                    if e.at > now { items[i].followUp = e.at }
+                    changed = true
+                }
+            } else {
+                var m = Memory(text: e.text, kind: .reminder, importance: 10, source: e.source)
+                m.followUp = max(e.at, now)
+                items.insert(m, at: 0)
+                changed = true
+            }
+        }
+        if changed { save() }
     }
 
     /// The pet let a due follow-up pass: it tries again at `retry`, and gives up after the third time.

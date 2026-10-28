@@ -57,6 +57,9 @@ final class IconVisits {
     /// Changes whenever a visit starts or is called off; scheduled steps of an older visit then do nothing.
     private var visit = 0
 
+    /// What the pet did at an icon, in words: the pet's mind decides whether to say something about it.
+    var onEvent: ((String) -> Void)?
+
     init(pet: PetWindowController) {
         self.pet = pet
     }
@@ -253,7 +256,9 @@ final class IconVisits {
         after(2.5, id) { [self] in
             pet.play(.swipe)
             pet.meow(.mew, chance: 0.4)
-            pet.say(arrived ? DesktopItems.remark(onArrival: item.name) : DesktopItems.remark(visiting: item.name))
+            let kind = DesktopItems.kind(of: item.name).label
+            onEvent?(arrived ? "桌面上刚出现一个新\(kind)「\(item.name)」，你跳到它的图标上嗅了嗅、用爪子拍了拍"
+                             : "你跳到了桌面上\(kind)「\(item.name)」的图标上坐着")
         }
         if settings.iconNudge { after(4.6, id) { [self] in nudge() } }
         let stay = Double.random(in: Self.stay)
@@ -374,7 +379,6 @@ final class IconVisits {
             q.frame = q.frame.offsetBy(dx: dx, dy: 0)
             self.perch = q
             self.pet.wander(to: self.pet.characterOrigin.x + dx)
-            self.pet.say(tr("嘿咻～挪一挪", "Heave-ho~ scoot over"), ms: 3000)
         }
     }
 

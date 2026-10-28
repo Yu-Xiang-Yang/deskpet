@@ -136,8 +136,10 @@ enum InnerThoughts {
         [
             "type": "object",
             "additionalProperties": false,
-            "required": ["thoughts"],
+            "required": ["thoughts", "dance"],
             "properties": [
+                "dance": ["anyOf": [["type": "null"], ["type": "boolean"]],
+                          "description": "Only when the trigger is music: whether to sway to it; otherwise null."],
                 "thoughts": [
                     "type": "array",
                     "items": [
@@ -170,6 +172,15 @@ enum InnerThoughts {
                                     motivation: max(1, min(5, t["motivation"]?.double ?? 1)),
                                     followUp: follow?.isEmpty == false ? follow : nil)
             }
+        }
+        return nil
+    }
+
+    /// Whether the pet chose to sway to the music ("dance" beside the thoughts); nil when it did not say.
+    static func dance(_ raw: String) -> Bool? {
+        for candidate in PetReply.jsonCandidates(in: raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            guard let json = try? JSON.parse(candidate), json["thoughts"] != nil else { continue }
+            return json["dance"]?.bool
         }
         return nil
     }

@@ -1,26 +1,22 @@
 import AppKit
 import EventKit
 
-/// Reads the owner's events from the system calendar (every account synced into Calendar) and announces
-/// them through the pet: the day's overview at the first look, and each timed event shortly before it starts.
+/// Reads the owner's events from the system calendar (every account synced into Calendar) and keeps those of today
+/// and tomorrow in the memory bank as reminders (`onEvents`, CalendarAlerts.reminder): the pet's mind gives each one
+/// shortly before it starts, and knows the day's schedule meanwhile.
 @MainActor
 final class CalendarWatcher {
     private let settings = AppSettings.shared
-    private let announce: (String, PetMotion) -> Void
+    private let onEvents: ([(source: String, text: String, at: Date)]) -> Void
     private let store = EKEventStore()
     private var timer: Timer?
     private var changeObserver: Any?
     /// Events from now until the end of tomorrow, refreshed when the calendar database changes.
     private(set) var events: [CalendarEvent] = []
     private var loadedAt = Date.distantPast
-    private var state: CalendarAlertState {
-        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(state), forKey: "calendarAlertState") }
-    }
 
-    init(announce: @escaping (String, PetMotion) -> Void) {
-        self.announce = announce
-        state = UserDefaults.standard.data(forKey: "calendarAlertState")
-            .flatMap { try? JSONDecoder().decode(CalendarAlertState.self, from: $0) } ?? CalendarAlertState()
+    init(onEvents: @escaping ([(source: String, text: String, at: Date)]) -> Void) {
+        self.onEvents = onEvents
     }
 
     nonisolated static var authorized: Bool { EKEventStore.authorizationStatus(for: .event) == .fullAccess }
@@ -82,24 +78,14 @@ final class CalendarWatcher {
         guard force || settings.calendarAlerts else { return }
         guard Self.authorized else { report?(Self.statusText); return }
         reloadIfStale(force: force)
+        // Events still to come (all-day ones while their day lasts) become reminders in the memory bank.
+        let now = Date()
+        let ahead = events.filter { $0.allDay ? $0.end > now : $0.start > now.addingTimeInterval(-Double(CalendarAlerts.lateMinutes) * 60) }
+        onEvents(ahead.map { CalendarAlerts.reminder($0, leadMinutes: settings.calendarLeadMinutes) })
         if force {
-            let ahead = CalendarAlerts.today(events, now: Date())
-            if ahead.isEmpty {
-                report?(tr("今天已没有日程。", "Nothing more on today's calendar."))
-            } else {
-                let (text, motion) = CalendarAlerts.message(.today(ahead))
-                announce(text, motion)
-                report?(tr("今天还有 \(ahead.count) 项日程。", "\(ahead.count) event(s) ahead today."))
-            }
-            return
-        }
-        var s = state
-        let alerts = CalendarAlerts.evaluate(events, now: Date(), leadMinutes: settings.calendarLeadMinutes,
-                                             present: PetBrain.idleSeconds < ReminderRules.awaySeconds, state: &s)
-        state = s
-        for alert in alerts {
-            let (text, motion) = CalendarAlerts.message(alert)
-            announce(text, motion)
+            let today = CalendarAlerts.today(events, now: now)
+            report?(today.isEmpty ? tr("今天已没有日程。", "Nothing more on today's calendar.")
+                                  : tr("今天还有 \(today.count) 项日程，已记入提醒，到时由桌宠提醒。", "\(today.count) event(s) ahead today, kept as reminders."))
         }
     }
 

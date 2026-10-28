@@ -197,7 +197,8 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
                     line.show()
                     self.report = String(format: "cloud\t%@\t%@\t%@\t%.1f", self.settings.cloudSpeechModel, self.settings.cloudSpeechVoice,
                                          line.text, Date().timeIntervalSince(line.queued))
-                    line.tell("✓ " + tr("云端语音", "Cloud voice") + " · " + self.settings.cloudSpeechVoice)
+                    let source = CloudSpeech.isLocal(baseURL: self.settings.cloudSpeechBaseURL) ? tr("本机语音", "Local voice") : tr("云端语音", "Cloud voice")
+                    line.tell("✓ " + source + " · " + self.settings.cloudSpeechVoice)
                 }
             } catch {
                 guard let self, self.current === line, !(error is CancellationError) else { return }
@@ -218,18 +219,30 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
         }
         guard let url = CloudSpeech.endpoint(baseURL: s.cloudSpeechBaseURL) else { return Task { throw Failure.address } }
         let saved = Keychain.hasValue(account: "speech")
-        let local = url.host == "localhost" || url.host == "127.0.0.1"
+        let local = CloudSpeech.isLocal(baseURL: s.cloudSpeechBaseURL)
         let body = CloudSpeech.body(text: text, model: s.cloudSpeechModel, voice: s.cloudSpeechVoice, speed: s.speechRate).data()
         return Task {
             // Read off the main thread: the Keychain may first ask for access, and the pet keeps running meanwhile.
             let key = saved ? (await Keychain.readInBackground(account: "speech") ?? "") : ""
             guard !key.isEmpty || local else { throw Failure.key }
-            var request = URLRequest(url: url, timeoutInterval: 12)
+            // A local model needs longer than a service in the cloud, above all to load after a pause.
+            var request = URLRequest(url: url, timeoutInterval: local ? 30 : 12)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             if !key.isEmpty { request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
             request.httpBody = body
-            let (data, response) = try await URLSession.shared.data(for: request)
+            // The local voice may still be starting (the pet starts it): a refused connection is tried again.
+            var attempt = 0
+            func send() async throws -> (Data, URLResponse) {
+                do {
+                    return try await URLSession.shared.data(for: request)
+                } catch let error as URLError where local && error.code == .cannotConnectToHost && attempt < 3 {
+                    attempt += 1
+                    try await Task.sleep(nanoseconds: 2_000_000_000)
+                    return try await send()
+                }
+            }
+            let (data, response) = try await send()
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let type = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
             guard status == 200, !data.isEmpty, !type.contains("json") else {

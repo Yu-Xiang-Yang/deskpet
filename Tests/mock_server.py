@@ -49,7 +49,18 @@ def inner_life(system, last):
         seen = '"type": "image"' in last or "image_url" in last
         return {"activity": "在 Xcode 里调试桌宠的 Swift 代码" if seen else "（没有收到截图）", "kind": "work"}
     if "【念头】" in system:
-        if "到期要跟进的事" in last:
+        # Reminders are given (labelled R1), except one marked 测试兜底, which the pet lets pass (the app then says it as it is).
+        if "【提醒】" in last and "R1" in last and "测试兜底" not in last:
+            return {"thoughts": [{"thought": "主人交代的事到点了", "say": "到点啦，别忘了你交代的事哦！", "motion": "surprised",
+                                  "motivation": 5, "follow_up": "R1"}], "dance": None}
+        if "开始播放音乐" in last:
+            return {"thoughts": [{"thought": "好听的歌", "say": "这首歌真好听，我也跟着摇～", "motion": "happy", "motivation": 4,
+                                  "follow_up": None}], "dance": True}
+        if "摸了摸你的头" in last:
+            return {"thoughts": [{"thought": "被摸头了", "say": "嘿嘿，好舒服～", "motion": "shy", "motivation": 4, "follow_up": None}], "dance": None}
+        if "你刚刚启动" in last:
+            return {"thoughts": [{"thought": "又见面了", "say": "我来陪你啦～", "motion": "wave", "motivation": 4, "follow_up": None}], "dance": None}
+        if "到期要跟进的事" in last and "E1" in last:
             return {"thoughts": [{"thought": "组会应该结束了", "say": "组会后来顺利吗？", "motion": "perk", "motivation": 5, "follow_up": "E1"}]}
         if "刚回到电脑前" in last:
             return {"thoughts": [{"thought": "主人回来了", "say": "回来啦～刚才去哪儿了？", "motion": "wave", "motivation": 4, "follow_up": None}]}

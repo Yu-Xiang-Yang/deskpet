@@ -7,15 +7,18 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private let settings = AppSettings.shared
     private let pet = PetWindowController()
     private lazy var brain = PetBrain(pet: pet)
+    /// The focus timer's notices (the owner's day goes to the pet's mind, see `reminders.onRoutine`).
     private lazy var reminders = ReminderScheduler { [weak self] text, motion in
         self?.mischief.interrupt()  // e.g. back from a screen edge, so that the bubble is fully visible
-        self?.brain.remind(text, motion: motion)
+        self?.brain.notice(text, motion: motion)
     }
-    private lazy var weather = WeatherWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
-    private lazy var calendar = CalendarWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
-    private lazy var deepseekBalance = DeepSeekBalanceWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
+    // Alerts are no fixed lines: the pet's mind hears of them and decides whether to mention them.
+    private lazy var weather = WeatherWatcher { [weak self] text, _ in self?.brain.consider(.event("收到一条天气提醒：" + text)) }
+    private lazy var calendar = CalendarWatcher { entries in MemoryStore.shared.syncCalendar(entries, now: Date()) }
+    private lazy var deepseekBalance = DeepSeekBalanceWatcher { [weak self] text, _ in self?.brain.consider(.event("收到一条余额提醒：" + text)) }
     private let speechBalance = SpeechBalanceWatcher()
-    private lazy var claudeUsage = ClaudeUsageWatcher { [weak self] text, motion in self?.reminders.announce(text, motion: motion) }
+    private let localVoice = LocalVoiceServer()
+    private lazy var claudeUsage = ClaudeUsageWatcher { [weak self] text, _ in self?.brain.consider(.event("收到一条 Claude 额度提醒：" + text)) }
     private let engine = ResearchEngine()
     private lazy var research = ResearchWindowController(engine: engine)
     private let settingsWindow = SettingsWindowController()
@@ -50,7 +53,8 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     static let minimumAway: TimeInterval = 10
     private var petReady = false
     private let music = MusicMonitor()
-    private var lastMusicRemark = Date.distantPast
+    /// When the music being played started, for telling the pet how long it lasted.
+    private var musicStarted: Date?
     private var nextWander = Date.distantFuture
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -61,9 +65,20 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         pet.setLayer(settings.petLayer)
         pet.show(model: settings.selectedModel, scale: settings.petScale)
 
-        brain.onRemind = { [weak self] r in
-            self?.reminders.add(minutes: r.minutes, text: r.text)
+        // The owner's reminders are memories of the highest importance; the pet's mind gives them when due.
+        brain.onRemind = { r in
+            MemoryStore.shared.addReminder(r.text, at: Date().addingTimeInterval(Double(max(1, r.minutes)) * 60))
         }
+        reminders.onRoutine = { [weak self] moment in self?.brain.consider(.routine(moment)) }
+        reminders.onSnooze = { text in MemoryStore.shared.addReminder(text, at: Date().addingTimeInterval(600)) }
+        brain.mind.notify = { [weak self] text in self?.reminders.notify(text) }
+        brain.mind.onDance = { [weak self] dance in
+            guard let self, self.music.playing else { return }
+            self.pet.setGrooving(dance)
+            if dance { self.mischief.musicChanged(true) }
+        }
+        mischief.onEvent = { [weak self] what in self?.brain.consider(.event(what)) }
+        iconVisits.onEvent = { [weak self] what in self?.brain.consider(.event(what)) }
         brain.onOpenApp = { [weak self] name in
             AppLauncher.open(name) { self?.pet.say($0, kind: "memory") }
         }
@@ -148,6 +163,13 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         settings.$petScale.dropFirst().removeDuplicates().sink { [weak self] in self?.pet.scale = CGFloat($0) }.store(in: &subscriptions)
         settings.$speech.dropFirst().removeDuplicates().filter { !$0 }.sink { [weak self] _ in self?.pet.speaker.stop() }
             .store(in: &subscriptions)
+        // The local voice runs while reading aloud uses it (after the settings changed: once they are stored).
+        Publishers.CombineLatest3(settings.$speech, settings.$speechEngine, settings.$cloudSpeechBaseURL)
+            .debounce(for: .seconds(1), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.localVoice.update() }.store(in: &subscriptions)
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.localVoice.stop() }
+        }
         settings.$petLayer.dropFirst().sink { [weak self] layer in
             self?.pet.setLayer(layer)
             if layer != .top { self?.climber.jumpDown() }  // on a window it would be hidden behind other windows
@@ -325,7 +347,8 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             text = DesktopItems.remark(widgetOwner: owner, name: name, claudePercent: percent)
         }
         pet.meow(.mew, chance: 0.3)
-        pet.say(text)
+        brain.consider(.event("在桌面影院里，" + (kind == "icon" ? "你跳到了桌面图标「\(name)」上" : "你从小组件「\(owner)\(name.isEmpty ? "" : " · " + name)」后面探出头来")
+                              + "。（参考：\(text)）"))
     }
 
     /// After a full opening the pet greets the audience; after a short one it may give a little nod.
@@ -335,16 +358,8 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             if Double.random(in: 0..<1) < 0.4 { pet.play(.happy) }
             return
         }
-        let hour = Calendar.current.component(.hour, from: Date())
-        var lines = [tr("开拍啦——今天的主角是我！", "Rolling! Today's lead: me."),
-                     tr("你来看我演出啦？", "Here to watch the show?"),
-                     tr("嘘，电影开始了～", "Shh, the film is starting~"),
-                     tr("镜头对准我了吗？好，开始！", "Is the camera on me? Okay — action!")]
-        if (5..<11).contains(hour) { lines.append(tr("早安！今天的第一场戏，开拍～", "Morning! First scene of the day — action~")) }
-        if hour >= 19 || hour < 5 { lines.append(tr("夜场电影，我陪你看～", "A late show — I'll keep you company~")) }
-        pet.play(.wave)
         pet.meow(.trill, chance: 0.6)
-        pet.say(lines.randomElement()!)
+        brain.consider(.event("桌面影院开始放映：桌面空了出来，你走进画面成了电影的主角，镜头对准了你"))
     }
 
     @objc private func toggleDesktopFilm() { settings.desktopFilm.toggle() }
@@ -715,13 +730,20 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
                 else if command.hasPrefix("think-return:") { self.brain.mind.think(.returned(minutes: Int(command.dropFirst(13)) ?? 60)) }
                 else if command == "think-follow" { self.brain.mind.think(.followUp) }
                 else if command == "mind-tick" { self.brain.mind.tick() }
+                // A reminder of the owner's, due in the given seconds: "remind:<seconds>:<text>".
+                else if command.hasPrefix("remind:") {
+                    let parts = command.dropFirst(7).split(separator: ":", maxSplits: 1)
+                    if parts.count == 2, let seconds = Double(parts[0]) {
+                        MemoryStore.shared.addReminder(String(parts[1]), at: Date().addingTimeInterval(seconds))
+                    }
+                }
                 else if command == "look" { ScreenWatcher.shared.look { NSLog("DeskPet look: %@", $0) } }
                 else if command == "mind-report", let dir = ProcessInfo.processInfo.environment["DESKPET_DIR"] {
                     try? self.brain.mind.report.write(toFile: dir + "/mind.txt", atomically: true, encoding: .utf8)
                 }
                 else if command == "speech-balance" { self.reportSpeechBalance() }
                 else if command == "music-report", let dir = ProcessInfo.processInfo.environment["DESKPET_DIR"] {
-                    try? self.music.report.write(toFile: dir + "/music.txt", atomically: true, encoding: .utf8)
+                    try? (self.music.report + " grooving=\(self.pet.grooving ? 1 : 0)").write(toFile: dir + "/music.txt", atomically: true, encoding: .utf8)
                 }
                 else if command == "speech-report", let dir = ProcessInfo.processInfo.environment["DESKPET_DIR"] {
                     try? (self.pet.speaker.report + "\trevealed=\(self.pet.speaker.revealed)\tcached=\(self.pet.speaker.cacheHits)")
@@ -966,17 +988,21 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
 
     // MARK: Music
 
+    /// Music started: the pet's mind decides whether to sway to it and whether to say something (PetMind.onDance).
+    /// It stopped: the swaying ends, and after two minutes or more the pet may say something about it.
     private func musicChanged(_ playing: Bool) {
         brain.musicPlaying = playing
-        pet.setGrooving(playing)
-        mischief.musicChanged(playing)
-        // Now and then a word about the music (at most every 10 minutes).
-        if playing, Date().timeIntervalSince(lastMusicRemark) > 600, Double.random(in: 0...1) < 0.4 {
-            lastMusicRemark = Date()
-            let lines = [tr("这首歌好好听～", "I like this song~"), tr("动次打次 ♪", "Boom, tss ♪"),
-                         tr("一起摇摆吧～", "Let's groove~"), tr("听歌的时候效率会更高吗？", "Do you work better with music?")]
-            pet.say(lines.randomElement()!)
+        if playing {
+            musicStarted = Date()
+            brain.consider(.music)
+            return
         }
+        pet.setGrooving(false)
+        mischief.musicChanged(false)
+        if let start = musicStarted, Date().timeIntervalSince(start) >= 120 {
+            brain.consider(.musicStopped(minutes: Int(Date().timeIntervalSince(start) / 60)))
+        }
+        musicStarted = nil
     }
 
     // MARK: Wandering

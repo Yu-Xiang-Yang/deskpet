@@ -334,6 +334,9 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
         whenReady { [weak self] in self?.webView.call("pet.failAnswer", .string(id.uuidString)) }
     }
 
+    /// Whether the pet sways to music now (for test runs).
+    var grooving: Bool { states["pet.setGrooving"]?.first?.bool ?? false }
+
     func setGrooving(_ on: Bool) {
         send("pet.setGrooving", [.bool(on)], alsoHere: true)
     }

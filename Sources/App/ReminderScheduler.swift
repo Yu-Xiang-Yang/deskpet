@@ -1,11 +1,17 @@
 import AppKit
 import UserNotifications
 
-/// Checks the reminder rules every 30 seconds and delivers due reminders through the pet and
-/// a system notification (with a "Snooze 10 min" action).
+/// Checks the owner's day (Settings → Reminders) every 30 seconds. A moment of it (a meal time, work, a long stretch
+/// at the computer, water) is no fixed line: it is handed to the pet's mind (`onRoutine`), which decides whether and
+/// how to care. The focus timer's ends are said as they are. Also delivers system notifications (with a "Snooze
+/// 10 min" action) for the reminders the pet gives.
 final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
     private let settings = AppSettings.shared
     private let deliver: (String, PetMotion) -> Void
+    /// A moment of the owner's day, in words.
+    var onRoutine: ((String) -> Void)?
+    /// "Snooze 10 min" on a reminder's notification: the reminder's text.
+    var onSnooze: ((String) -> Void)?
     private var timer: Timer?
     private var state: ReminderState {
         didSet { UserDefaults.standard.set(try? JSONEncoder().encode(state), forKey: "reminderState") }
@@ -62,7 +68,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         state.pending.removeAll { $0.kind == "focusEnd" || $0.kind == "breakEnd" }
     }
 
-    /// Fires every kind once, for testing the presentation.
+    /// Fires every kind once, for testing (each moment of the day goes to the pet's mind).
     func fireAllForTesting() {
         let samples: [ReminderKind] = [.meal(time: "12:00"), .workStart, .workEnd, .sedentary, .water,
                                        .note(PendingNote(due: Date(), text: tr("测试提醒", "Test reminder")))]
@@ -73,18 +79,29 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
 
     // MARK: Delivery
 
-    /// Delivers a one-off announcement (e.g. a weather change) like a reminder: pet bubble and notification.
-    func announce(_ text: String, motion: PetMotion) {
-        deliver(text, motion)
-        notify(text)
-    }
-
     private func fire(_ kind: ReminderKind) {
+        guard case .note = kind else {
+            onRoutine?(Self.moment(kind))
+            return
+        }
         let (text, motion) = Self.content(kind)
         deliver(text, motion)
         notify(text)
         if case .note(let note) = kind, note.kind == "focusEnd" {
             add(minutes: 5, text: tr("休息结束，开始下一轮专注吧！", "Break's over, ready for the next round?"), kind: "breakEnd")
+        }
+    }
+
+    /// A moment of the owner's day in words, for the pet's mind.
+    static func moment(_ kind: ReminderKind) -> String {
+        let r = AppSettings.shared.reminders
+        switch kind {
+        case .meal(let time): return "\(ReminderRules.mealName(time))时间（\(time)）"
+        case .workStart: return "上班时间（\(r.workStart)）"
+        case .workEnd: return "下班时间（\(r.workEnd)）"
+        case .sedentary: return "主人已连续使用电脑约 \(r.sedentaryMinutes) 分钟没有起身"
+        case .water: return "距离上次关心主人喝水约 \(r.waterMinutes) 分钟了"
+        case .note(let note): return note.text
         }
     }
 
@@ -107,7 +124,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    private func notify(_ text: String) {
+    func notify(_ text: String) {
         let content = UNMutableNotificationContent()
         content.title = AppSettings.shared.petName
         content.body = text
@@ -128,7 +145,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         if response.actionIdentifier == Self.snoozeAction {
             let text = response.notification.request.content.userInfo["text"] as? String ?? ""
-            DispatchQueue.main.async { self.add(minutes: 10, text: text, kind: "snooze") }
+            DispatchQueue.main.async { self.onSnooze?(text) }
         }
         completionHandler()
     }

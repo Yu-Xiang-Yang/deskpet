@@ -209,6 +209,19 @@ enum CloudSpeech {
     static let siliconFlowModel = "FunAudioLLM/CosyVoice2-0.5B"
     /// "diana", the cheerful female preset voice.
     static let siliconFlowVoice = "FunAudioLLM/CosyVoice2-0.5B:diana"
+    /// The port of DeskPet's local voice (scripts/local-voice).
+    static let localVoicePort = 8790
+
+    /// Whether the service runs on this Mac: no key needed, and more time to speak (no network, but a model to run).
+    static func isLocal(baseURL: String) -> Bool {
+        guard let host = URL(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines))?.host?.lowercased() else { return false }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+    }
+
+    /// Whether the address is DeskPet's local voice, which the pet starts itself.
+    static func isLocalVoice(baseURL: String) -> Bool {
+        isLocal(baseURL: baseURL) && URL(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines))?.port == localVoicePort
+    }
 
     /// `{base}/audio/speech` for a base URL such as "https://api.siliconflow.cn/v1" (a full endpoint is kept as is).
     static func endpoint(baseURL: String) -> URL? {

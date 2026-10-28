@@ -31,6 +31,9 @@ final class Mischief {
     static let patsToSulk = 4
     static let patWindow: TimeInterval = 15
 
+    /// What happened in a prank, in words: the pet's mind decides whether to say something about it.
+    var onEvent: ((String) -> Void)?
+
     init(pet: PetWindowController) {
         self.pet = pet
     }
@@ -52,9 +55,7 @@ final class Mischief {
     var canJoke: () -> Bool = { false }
     /// Start of the current listening session; gaps of a few seconds between songs do not end it.
     private var musicSince: Date?
-    private var nextSing = Date.distantFuture
     private var nextJump = Date.distantFuture
-    private var lastEncore = Date.distantPast
     private var sessionEnd: DispatchWorkItem?
 
     func musicChanged(_ playing: Bool) {
@@ -63,7 +64,6 @@ final class Mischief {
             interrupt()  // the music comes first
             if musicSince == nil {
                 musicSince = Date()
-                nextSing = Date().addingTimeInterval(.random(in: 90...240))
                 nextJump = Date().addingTimeInterval(.random(in: 60...180))
             }
             return
@@ -73,42 +73,23 @@ final class Mischief {
         DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: work)
     }
 
-    /// Each beat: now and then sing along (every 4–8 min, not while the owner types) or jump on a
-    /// strong beat (every 3–6 min; any beat once a minute has passed without a strong one).
+    /// Each beat while the pet sways to the music (it chose to, see PetMind): now and then a jump on a strong beat
+    /// (every 3–6 min; any beat once a minute has passed without a strong one).
     func musicBeat(_ strength: Double) {
         guard settings.mischief, musicSince != nil else { return }
         let now = Date()
-        if now >= nextSing {
-            nextSing = now.addingTimeInterval(.random(in: 240...480))
-            if canJoke(), Self.keyboardIdleSeconds >= 10 {
-                pet.say([tr("♪～啦啦啦～♪", "♪~la la la~♪"),
-                         tr("♪ 嗯嗯～哼哼哼～ ♪", "♪ mm-mm~ hmm hmm hmm~ ♪"),
-                         tr("（跟着唱）♪～", "(singing along) ♪~"),
-                         tr("这段我会唱！♪～", "I know this part! ♪~")].randomElement()!, ms: 5000)
-            }
-        }
         if now >= nextJump, strength >= 0.85 || now.timeIntervalSince(nextJump) > 60 {
             nextJump = now.addingTimeInterval(.random(in: 180...360))
             if canJoke() {
                 pet.bounce()
                 pet.meow(.mew)
-                if Bool.random() { pet.say(tr("嗨～！", "Woo~!"), ms: 2500) }
             }
         }
     }
 
-    /// Eight seconds of silence after at least two minutes of music: the pet asks for more (at most every 20 min).
+    /// The music is over (what to say about it is the pet's mind's choice, see AppController.musicChanged).
     private func musicSessionEnded() {
-        guard let since = musicSince else { return }
         musicSince = nil
-        guard settings.mischief, Date().timeIntervalSince(since) >= 120,
-              Date().timeIntervalSince(lastEncore) > 1200, canJoke() else { return }
-        lastEncore = Date()
-        pet.play(.sad)
-        pet.meow(.sad)
-        pet.say([tr("再放一首嘛～", "One more song~"),
-                 tr("诶，怎么停了？我还没跳够呢！", "Huh, it stopped? I wasn't done dancing!"),
-                 tr("安可！安可！", "Encore! Encore!")].randomElement()!)
     }
 
     // MARK: Pranks timer
@@ -143,9 +124,7 @@ final class Mischief {
         case "sleep": startFakeSleep()
         case "peek": startPeek()
         case "sneak": sneakToPointer()
-        case "sing": musicSince = musicSince ?? Date(); nextSing = .distantPast; musicBeat(0.5)
         case "jump": musicSince = musicSince ?? Date(); nextJump = .distantPast; musicBeat(1)
-        case "encore": musicSince = Date().addingTimeInterval(-300); lastEncore = .distantPast; musicSessionEnded()
         default: break
         }
     }
@@ -161,8 +140,7 @@ final class Mischief {
             endFakeSleep()
             pet.play(.happy)
             pet.meow(.trill)
-            pet.say([tr("嘿嘿，被发现了！其实我是装睡的～", "Hehe, you caught me! I was only pretending~"),
-                     tr("呼……呼……诶？你怎么知道我没睡！", "Zzz… huh? How did you know I was awake!")].randomElement()!)
+            onEvent?("你刚才在装睡，主人点了你一下，识破了")
         case .peek(let returnX, _):
             endPeek(returnX: returnX, caught: true)
         }
@@ -176,8 +154,7 @@ final class Mischief {
         if now < sulkingUntil {
             pet.play(.shake)
             pet.meow(.angry)
-            pet.say([tr("哼！说了不给摸了！", "Hmph! I said no more pats!"),
-                     tr("(｀へ´) 不理你。", "(｀へ´) Not talking to you.")].randomElement()!)
+            onEvent?("你还在为被摸太多次生气，主人又来摸你的头")
             return true
         }
         pats = pats.filter { now.timeIntervalSince($0) < Self.patWindow } + [now]
@@ -186,7 +163,7 @@ final class Mischief {
         sulkingUntil = now.addingTimeInterval(30)
         pet.play(.shake)
         pet.meow(.angry)
-        pet.say(tr("摸太多啦！头发都乱了，我生气了，哼！", "Too many pats! You messed up my fur. Hmph!"))
+        onEvent?("主人在很短的时间里连续摸了你好几次头，你有点生气了，要躲开一会儿")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.stompOff() }
         return true
     }
@@ -233,7 +210,7 @@ final class Mischief {
             guard let self, case .peek = self.prank else { return }
             self.pet.play(.shy)
             self.pet.meow(.mew)
-            self.pet.say(tr("（偷看）👀", "(peeking) 👀"), ms: 5000)
+            self.onEvent?("你躲到了屏幕边缘，只探出半个身子偷看主人")
         }
     }
 
@@ -243,8 +220,7 @@ final class Mischief {
         if caught {
             pet.play(.happy)
             pet.meow(.trill)
-            pet.say([tr("被你发现了～", "You found me~"),
-                     tr("嘿嘿，我在玩捉迷藏！", "Hehe, I was playing hide-and-seek!")].randomElement()!)
+            onEvent?("你躲在屏幕边上偷看，被主人点了一下发现了")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.pet.wander(to: returnX) }
         } else {
             pet.wander(to: returnX)
@@ -263,9 +239,7 @@ final class Mischief {
         pet.wander(to: target) { [weak self] in
             self?.pet.play(.grab)
             self?.pet.meow(.mew)
-            self?.pet.say([tr("嘿嘿，偷偷跟过来了～", "Hehe, I sneaked over~"),
-                           tr("抓到你的鼠标啦！", "Got your mouse pointer!"),
-                           tr("你在看什么呀？让我也看看～", "What are you looking at? Let me see~")].randomElement()!)
+            self?.onEvent?("你偷偷跳到了主人的鼠标指针旁边，举起爪子想抓它")
         }
     }
 

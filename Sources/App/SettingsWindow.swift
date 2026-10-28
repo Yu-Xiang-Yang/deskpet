@@ -295,6 +295,19 @@ struct SettingsView: View {
                             settings.cloudSpeechModel = "gpt-4o-mini-tts"
                             settings.cloudSpeechVoice = "coral"
                         }
+                        Button(tr("本机千问 Qwen3-TTS（离线，免费）", "Local Qwen3-TTS (offline, free)")) {
+                            settings.cloudSpeechBaseURL = LocalVoiceServer.baseURL
+                            settings.cloudSpeechModel = "qwen3-tts"
+                            settings.cloudSpeechVoice = "default"
+                        }
+                    }
+                    if CloudSpeech.isLocalVoice(baseURL: settings.cloudSpeechBaseURL) {
+                        Text(LocalVoiceServer.installed
+                             ? tr("本机千问语音：由桌宠自动启动，模型闲置 10 分钟后卸载、下次说话时重新加载（约 3 秒）；声音为 local-voice/voices 中的参考录音，不联网、不计费。",
+                                  "Local Qwen3-TTS: started by the pet, its model unloaded after 10 idle minutes and loaded again for the next words (about 3 s); the voice is the reference recording in local-voice/voices; no network, no charge.")
+                             : tr("本机语音尚未安装：在终端运行 scripts/local-voice/install.sh <参考录音.wav> \"<录音中的原话>\"（需 Apple 芯片），在此之前由系统语音朗读。",
+                                  "The local voice is not installed: run scripts/local-voice/install.sh <reference.wav> \"<what it says>\" in Terminal (Apple Silicon); until then the system voice reads."))
+                            .font(.caption).foregroundStyle(LocalVoiceServer.installed ? Color.secondary : Color.orange)
                     }
                     TextField("Base URL", text: $settings.cloudSpeechBaseURL)
                     TextField(tr("模型", "Model"), text: $settings.cloudSpeechModel)
@@ -450,6 +463,7 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             memorySection(.fact, title: tr("长期事实", "Facts"))
+            memorySection(.reminder, title: tr("提醒与日程", "Reminders and events"))
             memorySection(.episode, title: tr("经历", "Episodes"))
             memorySection(.insight, title: tr("印象", "Impressions"))
             Section {
@@ -665,25 +679,30 @@ struct SettingsView: View {
 
     private var reminders: some View {
         Form {
+            Section {
+                Text(tr("桌宠不再说固定的定时提醒。下面填写的是你的作息：到了这些时刻，桌宠会结合当时的情境与记忆想一想，由它判断要不要、怎样关心你（需开启“念头式搭话”）。你亲口交代的提醒（如“30 分钟后提醒我开会”）和日历日程作为最重要的记忆保存，到点一定提醒，并发系统通知。",
+                        "The pet no longer says fixed timed reminders. Below is your day: at these moments the pet thinks about it with the situation and its memories, and decides whether and how to care (with inner thoughts on). Reminders you ask for (\"remind me in 30 minutes\") and calendar events are kept as the most important memories and always given when due, with a notification."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section(tr("吃饭", "Meals")) {
-                Toggle(tr("提醒吃饭", "Meal reminders"), isOn: $settings.reminders.mealsEnabled)
+                Toggle(tr("饭点时让桌宠想一想", "Think of me at meal times"), isOn: $settings.reminders.mealsEnabled)
                 TextField(tr("时间（逗号分隔，如 08:00, 12:00, 18:30）", "Times (comma separated, e.g. 08:00, 12:00, 18:30)"), text: $mealTimes)
                     .onSubmit(saveMeals)
                     .onChange(of: mealTimes) { saveMeals() }
             }
             Section(tr("工作", "Work")) {
-                Toggle(tr("上下班提醒", "Start/end of work"), isOn: $settings.reminders.workEnabled)
+                Toggle(tr("上下班时让桌宠想一想", "Think of me at the start and end of work"), isOn: $settings.reminders.workEnabled)
                 HStack {
                     TextField(tr("上班", "Start"), text: $settings.reminders.workStart)
                     TextField(tr("下班", "End"), text: $settings.reminders.workEnd)
                 }
                 Toggle(tr("仅工作日", "Weekdays only"), isOn: $settings.reminders.weekdaysOnly)
                 Stepper(value: $settings.reminders.sedentaryMinutes, in: 15...180, step: 5) {
-                    Toggle(tr("久坐提醒：每 \(settings.reminders.sedentaryMinutes) 分钟", "Stand-up reminder every \(settings.reminders.sedentaryMinutes) min"),
+                    Toggle(tr("连续坐 \(settings.reminders.sedentaryMinutes) 分钟后让桌宠想一想", "Think of me after \(settings.reminders.sedentaryMinutes) min of sitting"),
                            isOn: $settings.reminders.sedentaryEnabled)
                 }
                 Stepper(value: $settings.reminders.waterMinutes, in: 20...240, step: 10) {
-                    Toggle(tr("喝水提醒：每 \(settings.reminders.waterMinutes) 分钟", "Water reminder every \(settings.reminders.waterMinutes) min"),
+                    Toggle(tr("每 \(settings.reminders.waterMinutes) 分钟想一想喝水的事", "Think of water every \(settings.reminders.waterMinutes) min"),
                            isOn: $settings.reminders.waterEnabled)
                 }
             }
@@ -699,18 +718,15 @@ struct SettingsView: View {
                         ForEach(Talkativeness.allCases) { Text($0.title).tag($0) }
                     }
                 } else {
-                    Stepper(value: $settings.chatterLLMEvery, in: 0...10) {
-                        Text(settings.chatterLLMEvery == 0 ? tr("闲聊内容：仅本地语料", "Remarks: local phrases only")
-                             : tr("每 \(settings.chatterLLMEvery) 次闲聊由模型生成 1 次", "1 of every \(settings.chatterLLMEvery) remarks written by the model"))
-                    }
+                    Text(tr("关闭后桌宠不会主动开口（提醒与日程仍会到点直接念出）。", "Off: the pet does not speak of its own accord (reminders and events are still read out when due)."))
+                        .font(.caption).foregroundStyle(.orange)
                 }
                 Toggle(tr("跟进之前聊过的事（如考试、组会结束后问问结果）", "Follow up on things mentioned before (e.g. ask how an exam went)"), isOn: $settings.followUps)
-                Toggle(tr("由模型以角色口吻改写提醒", "Let the model phrase reminders in character"), isOn: $settings.aiReminderWording)
             } header: {
                 Text(tr("闲聊", "Small talk"))
             } footer: {
-                Text(tr("念头式搭话每次“想一想”调用一次模型：桌宠根据时间、主人是否在忙、最近的对话与记忆产生几个念头并评估想说的程度，只有超过开口阈值时才说出来；主人连续不回应时会更少开口。跟进在事情结束后、主人在电脑前时进行（8:00–23:00）。最近的念头可在“记忆库”中查看。",
-                        "Each time the pet thinks, the model is called once: it forms a few thoughts from the time, whether you are busy, recent chats and memories, rates how much it wants to say each, and speaks only above the threshold; it speaks less when remarks go unanswered. Follow-ups come after the event while you are at the computer (8:00–23:00). Recent thoughts are listed under Memory."))
+                Text(tr("桌宠的每一句主动的话都来自念头：定时“想一想”，以及启动、你回来、摸它、放音乐、作息时刻、天气或余额变化、它跳上桌面图标等时刻，都会调用一次模型。它根据时间、你是否在忙、连续用电脑多久、最近的对话与记忆产生几个念头并评估想说的程度，只有超过开口阈值时才说出来，听音乐时也由它决定要不要跟着摇；你连续不回应时会更少开口。跟进在事情结束后、你在电脑前时进行（8:00–23:00）；提醒与日程不受此限。最近的念头可在“记忆库”中查看。",
+                        "Every word the pet says of its own accord comes from a thought: every few minutes, and when it starts, you come back, pat it, play music, at the moments of your day, on weather or balance changes and when it jumps onto a desktop icon, the model is called once. From the time, whether you are busy, how long you have been at the computer, recent chats and memories it forms a few thoughts, rates how much it wants to say each, and speaks only above the threshold; with music it also decides whether to sway. It speaks less when remarks go unanswered. Follow-ups come after the event while you are at the computer (8:00–23:00); reminders and events are not bound by this. Recent thoughts are listed under Memory."))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
