@@ -947,6 +947,8 @@
     setScale(s) { root.style.setProperty("--pet-scale", String(s || 1)); },
     /** Near the top of the screen the bubbles stack below the character, the newest nearest to it. */
     setBubblesBelow(on) { root.classList.toggle("bubbles-below", !!on); },
+    /** Room kept free under the character for the chat box, when the bubbles are below it. */
+    setChatGap(px) { root.style.setProperty("--chat-gap", (px || 0) + "px"); },
     /** A cat sound (meow.js) for characters whose pet-map.json declares "voice": "cat"; `volume` 0…1. */
     meow(kind, volume) {
       if (!l2d || l2d.map.voice !== "cat" || !window.Meow || figureOn) return;  // the whale girl does not meow

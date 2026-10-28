@@ -155,7 +155,8 @@ html, body {
 /* Near the top of the screen: the character at the top of the window, the bubbles below it. The stage is
    scaled about its feet, so it is moved up by the part that the scaling leaves empty. */
 .bubbles-below #stage { bottom: auto; top: calc(-340px * (1 - var(--pet-scale, 1))); }
-.bubbles-below #bubbles { top: auto; bottom: 4px; flex-direction: column-reverse; justify-content: flex-end; }
+.bubbles-below #bubbles { top: auto; bottom: 4px; flex-direction: column-reverse; justify-content: flex-end;
+                          padding-top: var(--chat-gap, 0px); box-sizing: border-box; transition: padding-top 0.2s; }
 .bubbles-below .bubble { transform-origin: 50% 0; animation-name: bubble-in-below; }
 .bubbles-below .bubble::after { bottom: auto; top: -7px; transform: rotate(-135deg); }
 @keyframes bubble-in-below { from { transform: translateY(-10px) scale(0.9); opacity: 0; } to { transform: none; opacity: 1; } }

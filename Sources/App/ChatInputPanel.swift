@@ -9,6 +9,7 @@ final class ChatInputPanel: NSPanel, NSTextFieldDelegate {
     }
 
     var onSend: ((String) -> Void)?
+    var onClose: (() -> Void)?
     /// The app that was active before the shortcut activated this one.
     private var previousApp: NSRunningApplication?
     private let field = KeyPanelField()
@@ -73,15 +74,16 @@ final class ChatInputPanel: NSPanel, NSTextFieldDelegate {
         contentView = background
     }
 
-    func present(below anchor: NSWindow, placeholder: String, activating: Bool = false) {
+    /// Just below the character's paws (`feetY`, screen coordinates), centred under the pet window.
+    func present(below anchor: NSWindow, feetY: CGFloat, placeholder: String, activating: Bool = false) {
         prepare(placeholder: placeholder, activating: activating, cinematic: false)
         let a = anchor.frame
-        var origin = NSPoint(x: a.midX - frame.width / 2, y: a.minY - frame.height - 4)
+        var origin = NSPoint(x: a.midX - frame.width / 2, y: feetY - frame.height - 4)
         if let screen = anchor.screen ?? NSScreen.main {
             let visible = screen.visibleFrame
             if origin.y < visible.minY {
                 // No room below the pet (it usually stands on the Dock): overlap its lower edge instead.
-                origin.y = a.minY + 8
+                origin.y = feetY + 8
             }
             // Keep the whole box on screen when the pet sits at a screen edge.
             origin.x = min(max(origin.x, visible.minX + 4), visible.maxX - frame.width - 4)
@@ -134,6 +136,7 @@ final class ChatInputPanel: NSPanel, NSTextFieldDelegate {
         guard isVisible else { return }
         parent?.removeChildWindow(self)
         orderOut(nil)
+        onClose?()
         if let app = previousApp {
             previousApp = nil
             app.activate()

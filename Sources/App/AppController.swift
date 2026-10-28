@@ -111,6 +111,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             self?.calendar.requestAccess { _ in }
         }.store(in: &subscriptions)
 
+        chatPanel.onClose = { [weak self] in self?.pet.setChatGap(0) }
         chatPanel.onSend = { [weak self] text in
             guard let self else { return }
             if self.researchMode { self.askResearch(text) } else { self.brain.chat(text) }
@@ -488,7 +489,9 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             // The click that led here went to the desktop (Finder), so the box has to activate the app for keys.
             chatPanel.present(centeredAt: point, on: screen, placeholder: placeholder, activating: true)
         } else {
-            chatPanel.present(below: pet.panel, placeholder: placeholder, activating: activating)
+            chatPanel.present(below: pet.panel, feetY: pet.feetY, placeholder: placeholder, activating: activating)
+            // Bubbles below the character would sit under the box: they move down while it is open.
+            pet.setChatGap(pet.bubblesBelow ? chatPanel.frame.height + 10 : 0)
         }
         if !wasOpen { pet.play(.wave) }
     }

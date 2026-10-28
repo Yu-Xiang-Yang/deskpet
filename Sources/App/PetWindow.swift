@@ -211,6 +211,16 @@ final class PetWindowController: NSObject, WKScriptMessageHandler, WKNavigationD
     var characterHeight: CGFloat { scaledSize.height - bubbleBand }
     /// Points between the bottom of the stage and the character's paws (transparent margin of the model).
     private(set) var feetGap: CGFloat = 0
+    /// The character's paws, in screen coordinates.
+    var feetY: CGFloat { characterOrigin.y + feetGap }
+    /// Whether the bubbles are below the character (near the top of the screen).
+    var bubblesBelow: Bool { flipped }
+
+    /// Keeps `gap` points free under the character for the chat box (bubbles below the character move down).
+    func setChatGap(_ gap: CGFloat) {
+        whenReady { [weak self] in self?.webView.call("pet.setChatGap", .number(Double(gap))) }
+    }
+
     /// Width of the drawn character stage (the body itself is about half of it).
     var stageWidth: CGFloat { Self.baseSize.width * scale }
 
