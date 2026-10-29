@@ -4,7 +4,8 @@ POST /v1/audio/speech that the pet's cloud voice uses (Settings → General → 
 The model loads (and speaks a short warm-up line) when the service starts and on the first request after it was
 unloaded, which happens after IDLE seconds without a request, so that its memory (about 5 GB while
 speaking) is taken only while the pet talks. Each voice is a folder in voices/ with ref.wav (a few seconds of the
-voice) and ref.txt (what it says); the request's "voice" picks one, otherwise "default".
+voice) and ref.txt (what it says); the request's "voice" picks one, otherwise "default". Qwen3-TTS ignores a speaking
+rate, so the service changes the pace of the generated audio itself (`stretch`, keeping the pitch).
 
 DeskPet starts it while its cloud voice points here and passes its process id in DESKPET_VOICE_PARENT: the service
 quits when that process is gone. GET /health tells whether the model is loaded.
@@ -40,6 +41,36 @@ def voice_folder(name):
     return folder if (folder / "ref.wav").exists() else VOICES / "default"
 
 
+def stretch(audio, speed, rate):
+    """`audio` played `speed` times as fast at the same pitch (WSOLA: 40 ms Hann windows laid at half-window steps,
+    each taken from within ±10 ms of its nominal place where it continues the previous one best)."""
+    if abs(speed - 1) < 0.01 or len(audio) < rate // 10:
+        return audio
+    from scipy.signal import correlate
+    n = int(0.04 * rate) // 2 * 2
+    hop, tol = n // 2, int(0.01 * rate)
+    window = np.hanning(n + 1)[:n].astype(np.float32)  # periodic: windows half a window apart add up to 1
+    x = np.concatenate([np.zeros(tol, np.float32), audio.astype(np.float32), np.zeros(n + 2 * tol, np.float32)])
+    frames = int(len(audio) / speed / hop) + 1
+    out = np.zeros(frames * hop + n, np.float32)
+    weight = np.zeros_like(out)
+    previous = tol
+    for k in range(frames):
+        nominal = tol + int(round(k * hop * speed))
+        if nominal + tol + n > len(x) or previous + hop + n > len(x):
+            break
+        start = nominal
+        if k > 0:
+            follow = x[previous + hop:previous + hop + n]
+            region = x[nominal - tol:nominal + tol + n]
+            start = nominal - tol + int(np.argmax(correlate(region, follow, mode="valid", method="fft")))
+        out[k * hop:k * hop + n] += x[start:start + n] * window
+        weight[k * hop:k * hop + n] += window
+        previous = start
+    out /= np.maximum(weight, 1e-3)
+    return out[:int(len(audio) / speed)]
+
+
 def speak(text, voice, speed):
     global model, last_use
     folder = voice_folder(voice)
@@ -48,12 +79,12 @@ def speak(text, voice, speed):
         if model is None:
             from mlx_audio.tts.utils import load_model
             model = load_model(str(MODEL))
-        results = list(model.generate(text=text, ref_audio=str(folder / "ref.wav"), ref_text=ref_text,
-                                      language="Chinese", speed=speed))
+        results = list(model.generate(text=text, ref_audio=str(folder / "ref.wav"), ref_text=ref_text, language="Chinese"))
         last_use = time.time()
     if not results:
         raise RuntimeError("no audio")
     audio = np.concatenate([np.array(r.audio, dtype=np.float32).reshape(-1) for r in results])
+    audio = stretch(audio, speed, results[0].sample_rate)
     out = io.BytesIO()
     sf.write(out, audio, results[0].sample_rate, format="WAV", subtype="PCM_16")
     return out.getvalue()
