@@ -38,7 +38,8 @@
 | `idleActions` | 待机期间随机播放的动作列表（`group`、`index`），间隔由 `idleActionSeconds`（秒，默认 `[18, 45]`）决定 |
 | `states.sleep` | 睡眠状态下持续覆盖的参数（如闭眼、低头） |
 | `gaze` | 视线跟随所驱动的参数及幅度；省略时，若模型使用 Cubism 2 风格参数名（`PARAM_ANGLE_X` 等）则自动采用对应映射 |
-| `name`、`look` | 设置界面中显示的名称；提供给语言模型的外形描述 |
+| `name`、`look` | 设置界面中显示的名称；提供给语言模型的外形描述（仅描述外形） |
+| `habit` | 形象的说话习惯（如句尾带“喵”），仅在使用默认人设时提供给语言模型；自定义人设时说话方式以人设为准 |
 | `credit` | 模型要求的版权标注，显示于“设置 → 通用 → 形象”下方 |
 
 动作组与表情名称以模型的 `*.model3.json` 中 `FileReferences.Motions` 与 `FileReferences.Expressions` 的定义为准。说话期间，应用逐帧设置 `Groups` 中 `LipSync` 组所列参数（缺省为 `ParamMouthOpenY`）以驱动口型。

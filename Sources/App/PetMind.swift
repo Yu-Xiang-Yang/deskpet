@@ -248,7 +248,7 @@ final class PetMind {
         let batch = Array(messages.suffix(60))
         let text = transcript(batch)
         let (known, labels) = memory.digestContext(for: text, at: now)
-        let system = Self.digestPrompt(petName: settings.petName)
+        let system = settings.addressed(Self.digestPrompt(petName: settings.petName))
         // What the owner was seen doing meanwhile (screen glances), as background for the episodes.
         let since = state.digestedUntil ?? now.addingTimeInterval(-2 * 86400)
         let seen = ScreenWatcher.shared.glances.filter { $0.date > since }.reversed().map { g -> String in
@@ -261,6 +261,7 @@ final class PetMind {
             var message = "\(context)\n\n## 记忆库中已有的内容\n\(known)\n\n## 需要整理的对话\n\(text)"
             if !seen.isEmpty { message += "\n\n## 这段时间观察到主人在做的事（屏幕观察，供参考）\n" + seen.joined(separator: "\n") }
             message += "\n\n请整理，只输出 JSON。"
+            message = self.settings.addressed(message)
             var parsed: MemoryDigest?
             var error: String?
             do {
@@ -299,6 +300,7 @@ final class PetMind {
         对话中“主人”是用户本人，“\(petName)”是桌宠。只输出一个 JSON 对象：
         {"episodes": [{"text": "…", "importance": 5, "follow_up_at": null, "follow_up": null}], "facts": [{"text": "…", "importance": 6}], \
         "updates": [{"id": "F1", "text": "…"}], "insight": null}
+        各条记忆一律以“主人”作主语；密码、验证码、密钥、卡号等凭据不记原文，至多记其存放位置。
         - episodes：对话中发生或谈到的、与主人本人有关的事（经历、处境、情绪、计划、你们之间值得记住的互动），每条一句第三人称陈述并写明日期，\
         如“10 月 27 日晚主人说组会被导师批评，有些沮丧”。寒暄、问时间、单纯的指令（打开应用、放音乐）与每日任务的检索内容不记；\
         “记忆中已有的近三天经历”里已有的不重复记。importance 为 1–10：日常琐事 1–3，值得一提 4–6，重要的事（考试、答辩、面试、生病、重大情绪）7–10。
@@ -381,10 +383,10 @@ final class PetMind {
 
 
         ## 现在的任务：内心念头【念头】
-        此刻主人没有在跟你说话，你在自己想事情。请像真正陪在主人身边的伙伴那样，产生 1–3 个此刻自然会有的念头\
+        此刻主人没有在跟你说话，你在自己想事情。请以上面人设中的身份，产生 1–3 个此刻自然会有的念头\
         （可以是主人的近况、到期要跟进的事、时间与天气、你自己的感受等），并为每个念头评估“现在把它说出口”的意愿 motivation（1–5）：
         1 = 完全没必要说；2 = 可说可不说；3 = 有点想说；4 = 很想说，且时机合适；5 = 现在就该说（如到期跟进一件重要的事）。
-        你要像家人一样关心主人的身体与作息：到了饭点提醒吃饭；连续用电脑很久时提醒起来活动、让眼睛休息；隔一段时间提醒喝水；\
+        你关心主人的身体与作息：到了饭点提醒吃饭；连续用电脑很久时提醒起来活动、让眼睛休息；隔一段时间提醒喝水；\
         深夜提醒休息；上下班时打个招呼；主人听音乐、摸你、回来时自然地回应。但要自然、简短、不说教，同一件事提醒过一次就别反复说\
         （看“你最近主动说过的话”），主人正专注时宁可晚一点。
         “到期要跟进的事”里标注【提醒】的，是主人交代的提醒或日历日程，非常重要：必须现在提醒，给它的念头 motivation 填 5，say 里说清是什么事、几点。
@@ -392,8 +394,9 @@ final class PetMind {
         深夜不宜闲聊）；是否与你最近说过的话重复；主人连续没有回应时要更克制。大多数时候安静陪着就好，不必为了说话而说话。
         只输出一个 JSON 对象，不输出任何其它文字：
         {"thoughts": [{"thought": "内心的想法（不会说出口）", "say": "如果说出口会说的话", "motion": "动作", "motivation": 3, "follow_up": null}], "dance": null}
-        - say：口语化、简短（一般不超过 40 个字），可以使用颜文字，使用主人惯用的语言；跟进时自然地问起，不要说“根据记忆”“我记得你说过”，\
-        也不要一次问好几件事。
+        - say：简短（一般不超过 40 个字），语气、措辞与是否使用颜文字以人设为准，使用主人惯用的语言；跟进时自然地问起，\
+        不要说“根据记忆”“我记得你说过”，也不要一次问好几件事。触发与上下文中的描述（天气、余额、额度、桌面上发生的事等）\
+        只说明发生了什么，其中的措辞不是你的口吻；说出口时按人设重新表述。不写出密码、密钥等凭据的原文。
         - motion：从 \(PetMotion.allCases.map(\.rawValue).joined(separator: ", ")) 中选择最贴合语气的一个。
         - follow_up：这个念头是在跟进“到期要跟进的事”中的某一件时，填它的编号（如 "E1"、"R1"），否则为 null。
         - dance：只在触发是“主人开始播放音乐”时填 true（跟着音乐摇摆）或 false（不摇），其它时候为 null。
@@ -424,7 +427,7 @@ final class PetMind {
         let recent = conversations.daily().messages.filter { $0.role != .error }.suffix(8)
         let query = (recent.map(\.text) + due.map(\.text)).joined(separator: "\n")
         let block = memory.recallBlock(for: query, at: now).text
-        let system = brain.personaSection + memory.coreSection(at: now) + Self.thoughtPrompt
+        let system = settings.addressed(brain.personaSection + memory.coreSection(at: now) + Self.thoughtPrompt)
         let threshold = InnerThoughts.threshold(base: settings.talkativeness.threshold, unanswered: state.unanswered)
         let remarks = state.recentRemarks
         var message = "（系统：现在不是主人在对你说话，而是你自己在想事情。触发：\(trigger.prompt)。）\n" + situation(now)
@@ -433,7 +436,7 @@ final class PetMind {
         if !dueLines.isEmpty { message += "\n\n## 到期要跟进的事（按编号）\n" + dueLines.joined(separator: "\n") }
         if !remarks.isEmpty { message += "\n\n## 你最近主动说过的话（不要重复）\n" + remarks.prefix(5).map { "- " + $0 }.joined(separator: "\n") }
         message += "\n\n请产生此刻的念头并评估说出口的意愿，只输出 JSON。"
-        let request = message
+        let request = settings.addressed(message)
         Task { [weak self] in
             guard let self else { return }
             let context = await self.brain.context()
@@ -516,7 +519,8 @@ final class PetMind {
     /// notification.
     private func giveReminders(_ due: [Memory], except given: UUID?) {
         for m in due where m.kind == .reminder && m.id != given {
-            let text = m.text.hasPrefix("日程") || m.text.hasPrefix("提醒") ? m.text : tr("提醒：", "Reminder: ") + m.text
+            let said = settings.addressed(m.text)
+            let text = said.hasPrefix("日程") || said.hasPrefix("提醒") ? said : tr("提醒：", "Reminder: ") + said
             brain.remark(text, motion: .surprised, reminder: true)
             notify?(text)
             memory.followedUp(m.id, at: Date())

@@ -78,8 +78,14 @@ final class AppSettings: ObservableObject {
         return models.first { $0.id == modelID } ?? models.first { $0.id.hasSuffix("/Tororo") } ?? models.first
     }
 
-    /// Appearance described to the model, from "look" in the model's pet-map.json.
-    var characterLook: String? { selectedModel?.map?["look"]?.string }
+    /// `text` (a prompt, context, a memory, a spoken line) with the owner called by the name they gave (Persona).
+    func addressed(_ text: String) -> String { Persona.addressed(text, ownerName: userName) }
+
+    /// Whether the persona is the default one (never edited): only then does the character's speech habit apply.
+    var isDefaultPersona: Bool {
+        let p = persona.trimmingCharacters(in: .whitespacesAndNewlines)
+        return [Self.defaultPersona, Self.earlierDefaultPersona].contains { $0.trimmingCharacters(in: .whitespacesAndNewlines) == p }
+    }
     @Published var petScale: Double { didSet { defaults.set(petScale, forKey: "petScale") } }
     /// Window layer of the pet: above all windows, among them, or on the desktop only.
     @Published var petLayer: PetLayer { didSet { defaults.set(petLayer.rawValue, forKey: "petLayer") } }
@@ -276,7 +282,14 @@ final class AppSettings: ObservableObject {
     查看我所在城市今天的天气，给出穿衣与出行建议
     """
 
+    /// How the pet speaks belongs here (the reply format leaves tone and kaomoji to the persona).
     static let defaultPersona = """
+    你是一只住在用户电脑桌面上的桌面宠物。性格元气、温柔、偶尔有一点小调皮，说话简短自然、口语化，可以使用颜文字，\
+    会关心用户的作息与情绪，但不说教。你同时是可靠的学习与科研伙伴。
+    """
+
+    /// The default persona of earlier versions, still counted as the default.
+    static let earlierDefaultPersona = """
     你是一只住在用户电脑桌面上的桌面宠物。性格元气、温柔、偶尔有一点小调皮，说话简短自然，\
     会关心用户的作息与情绪，但不说教。你同时是可靠的学习与科研伙伴。
     """

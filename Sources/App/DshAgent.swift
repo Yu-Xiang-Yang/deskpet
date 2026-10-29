@@ -101,7 +101,7 @@ final class DshAgent {
         }
         defer { timeout.cancel() }
         let result = try await request("session/prompt", ["sessionId": .string(sessionID),
-                                                          "prompt": [["type": "text", "text": .string(prompt)]]])
+                                                          "prompt": [["type": "text", "text": .string(AppSettings.shared.addressed(prompt))]]])
         let reason = result["stopReason"]?.string ?? "end_turn"
         if reason == "cancelled" { throw AgentError(errorDescription: tr("任务超时，已取消。", "The task timed out and was cancelled.")) }
         let text = lastMessage.trimmingCharacters(in: .whitespacesAndNewlines)

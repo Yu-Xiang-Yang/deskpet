@@ -103,12 +103,12 @@ final class ScreenWatcher: ObservableObject {
         }
         looking = true
         let display = Self.displayUnderPointer()
-        let system = Self.prompt(petName: settings.petName)
+        let system = settings.addressed(Self.prompt(petName: settings.petName))
         let f = DateFormatter()
         f.locale = Locale(identifier: "zh_CN")
         f.dateFormat = "yyyy-MM-dd EEEE HH:mm"
         let text = "[当前时间：\(f.string(from: now))] 前台应用：\(app)" + (title.map { "；窗口标题：\($0)" } ?? "")
-            + "\n请描述主人此刻在做什么，只输出 JSON。"
+            + settings.addressed("\n请描述主人此刻在做什么，只输出 JSON。")
         Task { @MainActor [weak self] in
             guard let self else { return }
             var outcome: String

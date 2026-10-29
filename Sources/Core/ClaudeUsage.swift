@@ -199,7 +199,7 @@ enum ClaudeUsage {
         }
         let today = s.day(now)
         parts.append(tr("今天 Claude Code 用了 \(tokens(today?.tokens ?? 0)) tokens", "Claude Code used \(tokens(today?.tokens ?? 0)) tokens today"))
-        return parts.joined(separator: tr("；", "; ")) + tr("～", ".")
+        return parts.joined(separator: tr("；", "; ")) + tr("。", ".")
     }
 
     /// Background for the model, so that "how much Claude do I have left" can be answered.

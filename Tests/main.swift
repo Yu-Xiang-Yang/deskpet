@@ -975,5 +975,23 @@ do {
     check(brief.teased < 0.05, "Time outside the zone takes the play back (\(brief.teased))")
 }
 
+// MARK: Persona and how the owner is called
+
+do {
+    let custom = Persona.section(persona: "你是「墨笃」，冷静的主控 AI。", isDefault: false, name: "墨笃", look: "一只蓝眼睛的白猫",
+                                 habit: "说话时偶尔在句尾带一个“喵”", ownerName: " 翔洋 ")
+    check(custom.contains("你的外形是一只蓝眼睛的白猫。") && !custom.contains("喵"), "Own persona: the look, not the character's speech habit")
+    check(custom.contains("称呼对方时一律用「翔洋」。"), "Own persona: the owner's name to call them by")
+    let plain = Persona.section(persona: "你是一只桌面宠物。", isDefault: true, name: "桃桃", look: "一只黑猫。", habit: "说话时偶尔在句尾带一个“喵”",
+                                ownerName: "")
+    check(plain.contains("你的外形是一只黑猫。说话时偶尔在句尾带一个“喵”。") && !plain.contains("称呼对方"),
+          "Default persona: look and speech habit, no name to call the owner by (\(plain))")
+    check(!Persona.section(persona: "p", isDefault: true, name: "n", look: nil, habit: "  ", ownerName: "").contains("外形"), "No look, no blank habit")
+    check(Persona.addressed("主人对花生过敏；主人所在地天气", ownerName: "翔洋") == "翔洋对花生过敏；翔洋所在地天气", "The owner's name for the role word")
+    check(Persona.addressed("尚未在“设置 → 主人信息”中填写城市，主人", ownerName: "翔洋") == "尚未在“设置 → 主人信息”中填写城市，翔洋",
+          "The settings tab keeps its name")
+    check(Persona.addressed("主人对花生过敏", ownerName: " ") == "主人对花生过敏", "No name given: the role word stays")
+}
+
 print(failures == 0 ? "All \(checks) checks passed." : "\(failures) of \(checks) checks failed.")
 exit(failures == 0 ? 0 : 1)

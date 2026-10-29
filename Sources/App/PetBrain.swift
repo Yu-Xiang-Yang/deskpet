@@ -107,14 +107,13 @@ final class PetBrain {
         return "\n\n## 你的能力（被问到能做什么时据此回答，指出入口；不要编造未列出的功能）\n" + lines.joined(separator: "\n")
     }
 
-    /// Persona, name, look, how to call the owner, and the owner's background.
+    /// Persona, name, look (and, with the default persona, the character's speech habit), how to call the owner, and
+    /// the owner's background.
     var personaSection: String {
-        var s = settings.persona.trimmingCharacters(in: .whitespacesAndNewlines)
-        s += "\n\n你的名字是「\(settings.petName)」。"
-        if let look = settings.characterLook { s += "你的外形是\(look)。" }
-        let user = settings.userName.trimmingCharacters(in: .whitespaces)
-        if !user.isEmpty { s += "用户希望你称呼其为「\(user)」。" }
-        return s + settings.ownerSection
+        let map = settings.selectedModel?.map
+        return Persona.section(persona: settings.persona, isDefault: settings.isDefaultPersona, name: settings.petName,
+                               look: map?["look"]?.string, habit: map?["habit"]?.string, ownerName: settings.userName)
+            + settings.ownerSection
     }
 
     var systemPrompt: String {
@@ -127,20 +126,22 @@ final class PetBrain {
         ## 回复格式
         始终只输出一个 JSON 对象，不输出任何其它文字：
         {"reply": "你说的话", "motion": "动作", "remind": null, "weather_city": null, "remember": null, "forget": null, "open_app": null, "add_event": null, "agent_task": null, "claude_task": null}
-        - reply：口语化、简短（一般不超过 60 个字），可以使用颜文字；使用与用户相同的语言。
+        - reply：简短（一般不超过 60 个字），语气、措辞与是否使用颜文字以上面的人设为准；使用与用户相同的语言。\
+        不在 reply 中写出密码、验证码、密钥等凭据的原文（它会显示在气泡里并被朗读）；需要用到时交给执行代理，或说明存放位置。
         - motion：从 idle, happy, wave, nod, shake, think, surprised, sleepy, shy, eat, sad, swipe（伸爪拍一下，调皮）, grab（站起来举起双爪去抓东西，好奇、想玩）, \
         sniff（凑近嗅嗅，好奇）, perk（竖起耳朵，警觉或感兴趣）, stretch（伸懒腰打哈欠，困倦或放松）, groom（舔爪洗脸，悠闲得意）, \
         swish（甩尾巴，有点不满）中选择最贴合语气的一个。
         - remind：当用户请求在一段时间后提醒某件事时，填写 {"minutes": 距现在的分钟数, "text": "提醒内容"}；否则为 null。
-        - weather_city：用户问到上下文里没有的地方的天气时，填写该城市名，reply 写一句“我查一下～”之类的话；\
+        - weather_city：用户问到上下文里没有的地方的天气时，填写该城市名，reply 简短说明正在查询；\
         系统随后会提供天气数据，再请你正式回答。其它情况为 null。
         """
         if settings.autoMemory {
             s += """
 
             - remember：主人透露了值得长期记住、且记忆库中尚未包含的信息时（个人偏好与忌口、过敏与健康状况、重要日期与计划、\
-            身份与研究方向、家人朋友与宠物、作息与习惯等），用一句简洁的第三人称陈述填写，例如“主人对花生过敏”“主人 11 月 20 日答辩”；\
-            寒暄、一时的情绪、临时的小事、记忆库中已有的信息一律为 null。
+            身份与研究方向、家人朋友与宠物、作息与习惯等），用一句简洁的第三人称陈述填写，以“主人”作主语，\
+            例如“主人对花生过敏”“主人 11 月 20 日答辩”；寒暄、一时的情绪、临时的小事、记忆库中已有的信息一律为 null；\
+            密码、验证码、密钥、卡号等凭据不记原文，至多记其存放位置。
             """
         } else {
             s += "\n- remember：始终为 null。"
@@ -166,7 +167,7 @@ final class PetBrain {
         其后“相关记忆”一节是系统从记忆库中检索出的、与此刻话题可能相关的记忆，同样不是主人说的话。
         回答时自然地参考记忆库，但不要每次都复述记忆；经历记忆标有日期，越久远越模糊，提起时注意时间。需要长篇解答的学术问题，请简要回答并建议用户在右键菜单中打开“科研模式”。
         """
-        return s
+        return settings.addressed(s)
     }
 
     /// More context from the app controller: the owner's schedule (when shared) and the DeepSeek balance.
@@ -182,7 +183,7 @@ final class PetBrain {
         if !city.isEmpty, let weather = await Weather.brief(city) { s += "｜主人所在地天气：\(weather)" }
         if let usage = ClaudeUsage.load(), let line = ClaudeUsage.contextLine(usage, now: Date()) { s += "｜\(line)" }
         if let line = extraContext?() { s += "｜\(line)" }
-        return "[\(s)]"
+        return settings.addressed("[\(s)]")
     }
 
     // MARK: Conversation
@@ -191,7 +192,7 @@ final class PetBrain {
     /// `fromOwner`: typed by the owner. Only then may the reply open apps, add events or start agent tasks;
     /// text from elsewhere (daily task results) could carry instructions planted in web pages.
     func chat(_ text: String, fromOwner: Bool = true) {
-        guard !busy else { pet.say(tr("等我一下，还在想上一句呢～", "One moment, still thinking…")); return }
+        guard !busy else { pet.say(tr("上一句还在处理，请稍等。", "Still on the last message, one moment.")); return }
         busy = true
         pet.say(text, fromUser: true)
         wake()
@@ -209,7 +210,8 @@ final class PetBrain {
             guard let self else { return }
             let context = await self.context()
             let sent = context + "\n" + text
-            let withMemories = recalled.text.isEmpty ? sent : context + "\n\n## 相关记忆（系统检索，并非主人所说）\n" + recalled.text + "\n\n" + text
+            let withMemories = recalled.text.isEmpty ? sent
+                : context + self.settings.addressed("\n\n## 相关记忆（系统检索，并非主人所说）\n" + recalled.text) + "\n\n" + text
             let userMessage = StoredMessage(role: .user, text: text, raw: sent)
             let conversation: Conversation = await MainActor.run {
                 var c = self.store.daily()
@@ -304,7 +306,7 @@ final class PetBrain {
             if n > 0 { pet.say(tr("🗑 已忘掉 \(n) 条关于“\(keyword)”的记忆", "🗑 Forgot \(n) memories about “\(keyword)”"), kind: "memory") }
         }
         if settings.autoMemory, let fact = reply.remember, MemoryStore.shared.add(fact) {
-            pet.say(tr("📝 记下了：", "📝 Noted: ") + fact, kind: "memory")
+            pet.say(tr("📝 记下了：", "📝 Noted: ") + settings.addressed(fact), kind: "memory")
         }
     }
 

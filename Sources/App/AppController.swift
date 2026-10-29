@@ -532,8 +532,8 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             pet.play(.nod)
             let mode = settings.researchModeName.trimmingCharacters(in: .whitespaces)
             pet.say(mode.isEmpty
-                ? tr("进入科研模式啦，有什么问题尽管问～完整回答都会存进消息列表。",
-                     "Research mode on — ask away! Full answers are kept in the message list.")
+                ? tr("已进入科研模式，请提出问题；完整回答存入消息列表。",
+                     "Research mode on. Ask a question; full answers go to the message list.")
                 : tr("\(mode) 模式启动。全部算力已切换至科研任务，请提出问题；完整回答存入消息列表。",
                      "\(mode) mode engaged. All capacity is on research; ask away. Full answers go to the message list."))
             showChat(activating: false)
@@ -541,27 +541,27 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             if engine.isBusy { engine.cancel() }
             pet.play(.wave)
             let mode = settings.researchModeName.trimmingCharacters(in: .whitespaces)
-            pet.say(mode.isEmpty ? tr("退出科研模式，休息一下吧～", "Research mode off. Time for a break~")
-                                 : tr("\(mode) 模式解除，回到日常状态。休息一下吧～", "\(mode) mode released. Back to everyday mode — take a break~"))
+            pet.say(mode.isEmpty ? tr("已退出科研模式。", "Research mode off.")
+                                 : tr("\(mode) 模式解除，回到日常状态。", "\(mode) mode released. Back to everyday mode."))
         }
         if chatPanel.isVisible { showChat(activating: false) }  // refresh the placeholder
     }
 
     @objc private func toggleResearchSearch() {
         engine.webSearch.toggle()
-        pet.say(engine.webSearch ? tr("好，需要时我会联网查资料～", "Okay, I'll search the web when needed~")
-                                 : tr("好，先不联网，直接回答会快很多～", "Okay, answering without searching — much faster~"))
+        pet.say(engine.webSearch ? tr("已开启联网检索，需要时查阅资料。", "Web search on: sources are looked up when needed.")
+                                 : tr("已关闭联网检索，直接作答，速度更快。", "Web search off: answers come directly, much faster."))
     }
 
     @objc private func newResearchTopic() {
         researchConversationID = nil
-        pet.say(tr("好的，开始一个新话题～", "Okay, a new topic~"))
+        pet.say(tr("已开始新话题。", "New topic started."))
     }
 
     /// One research question from the chat box; the answer streams into an answer bubble.
     private func askResearch(_ text: String) {
         guard !engine.isBusy else {
-            pet.say(tr("还在查上一个问题，稍等一下喵～", "Still working on the last question~"))
+            pet.say(tr("上一个问题仍在处理，请稍等。", "Still on the last question, one moment."))
             return
         }
         pet.say(text, fromUser: true)
@@ -635,11 +635,11 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
     private func runDailyTasks() {
         let tasks = settings.dailyTaskList
         guard !tasks.isEmpty else {
-            pet.say(tr("还没有设置每日任务，可以在 设置 → 每日任务 里添加～", "No daily tasks yet — add some under Settings → Daily tasks~"))
+            pet.say(tr("尚未设置每日任务，可在“设置 → 每日任务”中添加。", "No daily tasks yet; add them under Settings → Daily tasks."))
             return
         }
         guard !dailyRunning, !engine.isBusy else {
-            pet.say(tr("我正在查别的东西，等一下哦～", "I'm busy looking something up, one moment~"))
+            pet.say(tr("正在处理其它检索，请稍等。", "Another lookup is running, one moment."))
             return
         }
         film.interrupt()  // the answers need the pet's own bubbles
@@ -648,7 +648,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         pet.cancelHop()
         pet.setBubbles(PetWindowController.researchBubbles)
         pet.play(.wave)
-        pet.say(tr("我先帮你完成今天的 \(tasks.count) 项每日任务～", "Let me run today's \(tasks.count) daily task(s) first~"))
+        pet.say(tr("开始执行今天的 \(tasks.count) 项每日任务。", "Running today's \(tasks.count) daily task(s)."))
 
         let now = Date()
         let parts = Calendar.current.dateComponents([.month, .day], from: now)
@@ -669,7 +669,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             }
             dailyRunning = false
             pet.play(.happy)
-            pet.say(tr("今天的任务完成啦，完整内容在消息列表的「\(title)」里～", "All done! The full brief is in the message list: “\(title)”."))
+            pet.say(tr("今天的任务已完成，完整内容见消息列表「\(title)」。", "Today's tasks are done; the full brief is in the message list: “\(title)”."))
         }
     }
 
@@ -828,7 +828,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
             switch result {
             case .success(let b):
                 self.pet.play(b.isLow ? .surprised : .nod)
-                let state = b.available ? (b.isLow ? tr("有点少了，记得充值～", "running low, top up soon~") : tr("还够用。", "plenty for now."))
+                let state = b.available ? (b.isLow ? tr("余额偏低，建议充值。", "running low; a top-up is advised.") : tr("余额充足。", "plenty for now."))
                                         : tr("已经不够调用了，需要充值。", "too low to call the API; please top up.")
                 self.pet.say(tr("DeepSeek 余额：", "DeepSeek balance: ") + b.lines.joined(separator: "；") + tr("，", ", ") + state, ms: 15000)
             case .failure(let error):
@@ -982,7 +982,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         } else {
             reminders.startFocus()
             pet.play(.nod)
-            pet.say(tr("开始专注 25 分钟！我会安静陪着你～", "25 minutes of focus, starting now! I'll keep quiet~"))
+            pet.say(tr("开始专注 25 分钟，期间不主动打扰。", "25 minutes of focus, starting now. No interruptions meanwhile."))
         }
     }
 

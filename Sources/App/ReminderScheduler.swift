@@ -61,7 +61,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
 
     func startFocus(minutes: Int = 25) {
         stopFocus()
-        add(minutes: minutes, text: tr("专注时间结束，休息 5 分钟吧～", "Focus session done. Take a 5-minute break~"), kind: "focusEnd")
+        add(minutes: minutes, text: tr("专注时间结束，休息 5 分钟。", "Focus session done. Time for a 5-minute break."), kind: "focusEnd")
     }
 
     func stopFocus() {
@@ -80,15 +80,15 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
     // MARK: Delivery
 
     private func fire(_ kind: ReminderKind) {
-        guard case .note = kind else {
+        guard case .note(let note) = kind else {
             onRoutine?(Self.moment(kind))
             return
         }
-        let (text, motion) = Self.content(kind)
-        deliver(text, motion)
-        notify(text)
-        if case .note(let note) = kind, note.kind == "focusEnd" {
-            add(minutes: 5, text: tr("休息结束，开始下一轮专注吧！", "Break's over, ready for the next round?"), kind: "breakEnd")
+        // Notes of the focus timer are said as they are; the owner's day goes to the pet's mind (no fixed lines).
+        deliver(note.text, note.kind == "focusEnd" ? .happy : .surprised)
+        notify(note.text)
+        if note.kind == "focusEnd" {
+            add(minutes: 5, text: tr("休息结束，可以开始下一轮专注。", "Break's over; the next round can start."), kind: "breakEnd")
         }
     }
 
@@ -102,25 +102,6 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         case .sedentary: return "主人已连续使用电脑约 \(r.sedentaryMinutes) 分钟没有起身"
         case .water: return "距离上次关心主人喝水约 \(r.waterMinutes) 分钟了"
         case .note(let note): return note.text
-        }
-    }
-
-    static func content(_ kind: ReminderKind) -> (String, PetMotion) {
-        switch kind {
-        case .meal(let time):
-            let meal = ReminderRules.mealName(time)
-            return ([tr("到\(meal)时间啦，先去吃饭吧～", "It's time for \(meal)~"),
-                     tr("该吃\(meal)咯！工作再忙也要好好吃饭。", "Time for \(meal)! Don't skip meals.")].randomElement()!, .eat)
-        case .workStart:
-            return (tr("上班时间到！今天也一起加油吧 (ง •̀_•́)ง", "Work time! Let's do our best (ง •̀_•́)ง"), .wave)
-        case .workEnd:
-            return (tr("下班时间到啦，今天辛苦了！", "Time to wrap up. Great work today!"), .happy)
-        case .sedentary:
-            return (tr("已经连续坐了好久了，起来活动一下吧～", "You've been sitting a while, time to stretch~"), .wave)
-        case .water:
-            return (tr("喝口水吧，保持水分很重要哦。", "Have some water, stay hydrated."), .nod)
-        case .note(let note):
-            return (note.text, note.kind == "focusEnd" ? .happy : .surprised)
         }
     }
 

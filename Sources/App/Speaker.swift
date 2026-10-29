@@ -101,8 +101,8 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
     func preview(outcome: @escaping (String) -> Void) {
         stop()
         let name = settings.petName.trimmingCharacters(in: .whitespaces)
-        enqueue(tr("你好呀，我是\(name.isEmpty ? "你的桌宠" : name)。以后我说的话，都会这样读给你听～",
-                   "Hi, I'm \(name.isEmpty ? "your desktop pet" : name). From now on I'll read what I say aloud, like this."),
+        enqueue(tr("你好，我是\(name.isEmpty ? "你的桌宠" : name)。之后我说的话会以这个声音读出来。",
+                   "Hello, I'm \(name.isEmpty ? "your desktop pet" : name). What I say will be read aloud in this voice."),
                 limit: nil, reveal: nil, outcome: outcome)
     }
 
