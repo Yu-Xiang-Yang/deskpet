@@ -57,7 +57,8 @@ def inner_life(system, last):
             return {"thoughts": [{"thought": "好听的歌", "say": "这首歌真好听，我也跟着摇～", "motion": "happy", "motivation": 4,
                                   "follow_up": None}], "dance": True}
         if "摸了摸你的头" in last:
-            return {"thoughts": [{"thought": "被摸头了", "say": "嘿嘿，好舒服～", "motion": "shy", "motivation": 4, "follow_up": None}], "dance": None}
+            return {"thoughts": [{"thought": "被摸头了", "say": "嘿嘿，好舒服～", "motion": "shy", "motivation": 4, "follow_up": None}], "dance": None,
+                    "mood": {"feeling": "happy", "because": "被摸头"}}
         if "你刚刚启动" in last:
             return {"thoughts": [{"thought": "又见面了", "say": "我来陪你啦～", "motion": "wave", "motivation": 4, "follow_up": None}], "dance": None}
         if "到期要跟进的事" in last and "E1" in last:
@@ -127,7 +128,8 @@ class Handler(BaseHTTPRequestHandler):
         if body.get("output_config", {}).get("format"):
             system = body.get("system") if isinstance(body.get("system"), str) else json.dumps(body.get("system"), ensure_ascii=False)
             inner = inner_life(system, json.dumps(last["content"], ensure_ascii=False))
-            text = json.dumps(inner if inner is not None else {"reply": "你好呀～今天也要加油！", "motion": "happy", "remind": None}, ensure_ascii=False)
+            text = json.dumps(inner if inner is not None else {"reply": "你好呀～今天也要加油！", "motion": "happy", "remind": None,
+                                                                    "mood": {"feeling": "content", "because": "主人来聊天"}}, ensure_ascii=False)
             events = [start,
                       ("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
                       ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}}),
@@ -204,7 +206,8 @@ class Handler(BaseHTTPRequestHandler):
             remind = {"minutes": 30, "text": "开会"} if asked else None
             n = sum(1 for m in body["messages"] if m["role"] == "user")
             reply = "收到！" if asked else f"这是第 {n} 句回复喵～"
-            events = [chunk({"content": json.dumps({"reply": reply, "motion": "nod", "remind": remind}, ensure_ascii=False)}),
+            events = [chunk({"content": json.dumps({"reply": reply, "motion": "nod", "remind": remind,
+                                                      "mood": {"feeling": "content", "because": "主人来聊天"}}, ensure_ascii=False)}),
                       chunk({}, "stop"), (None, "[DONE]")]
         sse(self, events)
 

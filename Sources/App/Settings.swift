@@ -46,6 +46,9 @@ final class AppSettings: ObservableObject {
     /// Spontaneous remarks come from inner thoughts: the model forms a few thoughts, rates the urge to voice each,
     /// and the pet speaks only when one is strong enough (otherwise `chatterLLMEvery` mixes in local phrases).
     @Published var innerThoughts: Bool { didSet { defaults.set(innerThoughts, forKey: "innerThoughts") } }
+    /// The pet's mood (Affect): carried between moments, given to the model, and colouring the readiness to speak
+    /// and the tone of the local voice.
+    @Published var affect: Bool { didSet { defaults.set(affect, forKey: "affect") } }
     /// How readily a thought is voiced.
     @Published var talkativeness: Talkativeness { didSet { defaults.set(talkativeness.rawValue, forKey: "talkativeness") } }
     /// Ask about things the owner mentioned (an exam, a meeting) once they are over.
@@ -165,6 +168,7 @@ final class AppSettings: ObservableObject {
             "chatterMinutes": 30,
             "chatterLLMEvery": 3,
             "innerThoughts": true,
+            "affect": true,
             "talkativeness": Talkativeness.normal.rawValue,
             "followUps": true,
             "screenAwareness": false,
@@ -224,6 +228,7 @@ final class AppSettings: ObservableObject {
         chatterMinutes = defaults.integer(forKey: "chatterMinutes")
         chatterLLMEvery = defaults.integer(forKey: "chatterLLMEvery")
         innerThoughts = defaults.bool(forKey: "innerThoughts")
+        affect = defaults.bool(forKey: "affect")
         talkativeness = Talkativeness(rawValue: defaults.string(forKey: "talkativeness") ?? "") ?? .normal
         followUps = defaults.bool(forKey: "followUps")
         screenAwareness = defaults.bool(forKey: "screenAwareness")

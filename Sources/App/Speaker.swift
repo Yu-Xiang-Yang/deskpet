@@ -44,8 +44,9 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
         let text: String
         let language: String
         let queued = Date()
-        /// The pieces for the cloud voice, their requests (made a little ahead) and the one being played.
+        /// The pieces for the cloud voice, their requests (made a little ahead) and the one being played, in `voice`.
         var parts: [String] = []
+        var voice = ""
         var audio: [Task<Data, Error>?] = []
         var part = 0
         /// Shows the bubble (once).
@@ -141,6 +142,7 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
         // Whatever happens to the voice (a playback that never ends), the bubble appears.
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.staleAfter + Self.revealWait) { [weak line] in line?.show() }
         if settings.speechEngine == .cloud {
+            line.voice = toneVoice()
             line.parts = SpeechText.chunks(words)
             line.audio = Array(repeating: nil, count: line.parts.count)
             request(line, through: 1)
@@ -175,7 +177,7 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
     /// Makes sure the pieces up to `index` have been requested.
     private func request(_ line: Line, through index: Int) {
         for i in 0...min(index, line.parts.count - 1) where line.audio[i] == nil {
-            line.audio[i] = fetch(line.parts[i])
+            line.audio[i] = fetch(line.parts[i], voice: line.voice)
         }
     }
 
@@ -195,10 +197,10 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
                 self.speaking = true
                 if part == 0 {
                     line.show()
-                    self.report = String(format: "cloud\t%@\t%@\t%@\t%.1f", self.settings.cloudSpeechModel, self.settings.cloudSpeechVoice,
+                    self.report = String(format: "cloud\t%@\t%@\t%@\t%.1f", self.settings.cloudSpeechModel, line.voice,
                                          line.text, Date().timeIntervalSince(line.queued))
                     let source = CloudSpeech.isLocal(baseURL: self.settings.cloudSpeechBaseURL) ? tr("本机语音", "Local voice") : tr("云端语音", "Cloud voice")
-                    line.tell("✓ " + source + " · " + self.settings.cloudSpeechVoice)
+                    line.tell("✓ " + source + " · " + line.voice)
                 }
             } catch {
                 guard let self, self.current === line, !(error is CancellationError) else { return }
@@ -209,9 +211,20 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
         }
     }
 
-    private func fetch(_ text: String) -> Task<Data, Error> {
+    /// The voice for a line: with the local voice and moods on, "<voice>-happy" or "<voice>-soft" for the tone of the
+    /// pet's mood (Affect.tone) when a reference recording of that name is installed in local-voice/voices; otherwise
+    /// the chosen voice.
+    private func toneVoice() -> String {
+        let voice = settings.cloudSpeechVoice.trimmingCharacters(in: .whitespaces)
+        guard settings.affect, CloudSpeech.isLocalVoice(baseURL: settings.cloudSpeechBaseURL), let tone = MindState.shared.mood().tone else { return voice }
+        let toned = (voice.isEmpty ? "default" : voice) + "-" + tone
+        let ref = AppPaths.dataDir.appendingPathComponent("local-voice/voices/\(toned)/ref.wav")
+        return FileManager.default.fileExists(atPath: ref.path) ? toned : voice
+    }
+
+    private func fetch(_ text: String, voice: String) -> Task<Data, Error> {
         let s = settings
-        let name = CloudSpeechCache.name(text: text, model: s.cloudSpeechModel, voice: s.cloudSpeechVoice, speed: s.speechRate,
+        let name = CloudSpeechCache.name(text: text, model: s.cloudSpeechModel, voice: voice, speed: s.speechRate,
                                          baseURL: s.cloudSpeechBaseURL)
         if let cached = VoiceCache.read(name) {
             cacheHits += 1
@@ -220,7 +233,7 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
         guard let url = CloudSpeech.endpoint(baseURL: s.cloudSpeechBaseURL) else { return Task { throw Failure.address } }
         let saved = Keychain.hasValue(account: "speech")
         let local = CloudSpeech.isLocal(baseURL: s.cloudSpeechBaseURL)
-        let body = CloudSpeech.body(text: text, model: s.cloudSpeechModel, voice: s.cloudSpeechVoice, speed: s.speechRate).data()
+        let body = CloudSpeech.body(text: text, model: s.cloudSpeechModel, voice: voice, speed: s.speechRate).data()
         return Task {
             // Read off the main thread: the Keychain may first ask for access, and the pet keeps running meanwhile.
             let key = saved ? (await Keychain.readInBackground(account: "speech") ?? "") : ""

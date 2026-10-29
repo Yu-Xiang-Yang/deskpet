@@ -33,6 +33,8 @@ struct Memory: Codable, Identifiable, Equatable {
     var followUpNote: String?
     /// Times the pet let a due follow-up pass (bad timing); after three it gives up.
     var followUpTries = 0
+    /// Episodes: the emotional tone for the owner, −1…1; a strong one makes the memory last longer.
+    var emotion: Double?
 
     init(text: String, kind: MemoryKind = .fact, importance: Int = 6, source: String = "auto", created: Date = Date()) {
         self.text = text
@@ -43,7 +45,7 @@ struct Memory: Codable, Identifiable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, text, created, source, kind, importance, recalled, recalls, followUp, followUpNote, followUpTries
+        case id, text, created, source, kind, importance, recalled, recalls, followUp, followUpNote, followUpTries, emotion
     }
 
     /// Memories written by earlier versions have only id, text, created and source.
@@ -60,9 +62,11 @@ struct Memory: Codable, Identifiable, Equatable {
         followUp = try c.decodeIfPresent(Date.self, forKey: .followUp)
         followUpNote = try c.decodeIfPresent(String.self, forKey: .followUpNote)
         followUpTries = try c.decodeIfPresent(Int.self, forKey: .followUpTries) ?? 0
+        emotion = try c.decodeIfPresent(Double.self, forKey: .emotion)
     }
 
-    /// Days for the retention to fall to 1/e: proportional to the importance, and multiplied by every recall.
+    /// Days for the retention to fall to 1/e: proportional to the importance, multiplied by every recall, and up to
+    /// half as long again for a strongly emotional episode (emotional events are remembered better).
     /// An episode of importance 5 that never comes up again: 10 days, faded after about 25.
     var strengthDays: Double {
         let base: Double
@@ -73,7 +77,7 @@ struct Memory: Codable, Identifiable, Equatable {
         // Kept until given (a pending follow-up never fades); once given (importance 4), gone within about a week.
         case .reminder: base = 0.25
         }
-        return base * Double(max(1, min(10, importance))) * Double(1 + recalls)
+        return base * Double(max(1, min(10, importance))) * Double(1 + recalls) * (1 + 0.5 * min(1, abs(emotion ?? 0)))
     }
 
     /// Retention after the forgetting curve, 0…1: exp(−t / S), t the days since the memory was made or last came up.

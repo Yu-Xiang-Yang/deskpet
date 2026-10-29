@@ -63,6 +63,7 @@ final class MemoryStore: ObservableObject {
             items[i].followUpNote = episode.followUpNote
         } else {
             var m = Memory(text: episode.text, kind: .episode, importance: episode.importance, created: now)
+            m.emotion = episode.emotion
             m.followUp = episode.followUp
             m.followUpNote = episode.followUpNote
             items.insert(m, at: 0)

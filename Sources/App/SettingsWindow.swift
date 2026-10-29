@@ -482,6 +482,19 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+            if settings.affect {
+                Section(tr("此刻的心情", "Mood now")) {
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        let mood = mind.mood(at: context.date)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(mood.word() + mood.figures).font(.system(size: 12.5))
+                            ForEach(Array(mood.causes.enumerated()), id: \.offset) { _, c in
+                                Text(timeStamp(c.date) + " · " + settings.addressed(c.text)).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
             Section(tr("最近的念头", "Recent thoughts")) {
                 if mind.log.isEmpty {
                     Text(tr("还没有念头。主动闲聊开启后，桌宠会不时想一想，只有念头足够强烈时才开口。", "No thoughts yet. With spontaneous remarks on, the pet thinks now and then and speaks only when a thought is strong enough."))
@@ -722,11 +735,12 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.orange)
                 }
                 Toggle(tr("跟进之前聊过的事（如考试、组会结束后问问结果）", "Follow up on things mentioned before (e.g. ask how an exam went)"), isOn: $settings.followUps)
+                Toggle(tr("心情：在对话与念头之间延续，影响语气、开口意愿与本机语音的语调", "Mood: carried between moments; colours tone, readiness to speak and the local voice"), isOn: $settings.affect)
             } header: {
                 Text(tr("闲聊", "Small talk"))
             } footer: {
-                Text(tr("桌宠的每一句主动的话都来自念头：定时“想一想”，以及启动、你回来、摸它、放音乐、作息时刻、天气或余额变化、它跳上桌面图标等时刻，都会调用一次模型。它根据时间、你是否在忙、连续用电脑多久、最近的对话与记忆产生几个念头并评估想说的程度，只有超过开口阈值时才说出来，听音乐时也由它决定要不要跟着摇；你连续不回应时会更少开口。跟进在事情结束后、你在电脑前时进行（8:00–23:00）；提醒与日程不受此限。最近的念头可在“记忆库”中查看。",
-                        "Every word the pet says of its own accord comes from a thought: every few minutes, and when it starts, you come back, pat it, play music, at the moments of your day, on weather or balance changes and when it jumps onto a desktop icon, the model is called once. From the time, whether you are busy, how long you have been at the computer, recent chats and memories it forms a few thoughts, rates how much it wants to say each, and speaks only above the threshold; with music it also decides whether to sway. It speaks less when remarks go unanswered. Follow-ups come after the event while you are at the computer (8:00–23:00); reminders and events are not bound by this. Recent thoughts are listed under Memory."))
+                Text(tr("桌宠的每一句主动的话都来自念头：定时“想一想”，以及启动、你回来、摸它、放音乐、作息时刻、天气或余额变化、它跳上桌面图标等时刻，都会调用一次模型。它根据时间、你是否在忙、连续用电脑多久、最近的对话与记忆产生几个念头并评估想说的程度，只有超过开口阈值时才说出来，听音乐时也由它决定要不要跟着摇；你连续不回应时会更少开口。心情由摸头、被冷落、你回来、放音乐等事件与模型对每次对话的感受共同推动，约 45 分钟回落一半，深夜更安静；心情活跃时更愿开口，低落时语音改用柔和的参考录音（若已安装）。闲置时若情境与上次沉默时相同，不再重复调用模型。跟进在事情结束后、你在电脑前时进行（8:00–23:00）；提醒与日程不受此限。最近的念头可在“记忆库”中查看。",
+                        "Every word the pet says of its own accord comes from a thought: every few minutes, and when it starts, you come back, pat it, play music, at the moments of your day, on weather or balance changes and when it jumps onto a desktop icon, the model is called once. From the time, whether you are busy, how long you have been at the computer, recent chats and memories it forms a few thoughts, rates how much it wants to say each, and speaks only above the threshold; with music it also decides whether to sway. It speaks less when remarks go unanswered. Its mood is moved by pats, being ignored, your return, music and how the model felt about each moment, falls halfway back to rest in about 45 minutes and is quieter at night; a lively mood speaks more readily, and a low one uses the soft reference recording of the local voice when installed. An idle moment with nothing new since the last silent one is not thought about again. Follow-ups come after the event while you are at the computer (8:00–23:00); reminders and events are not bound by this. Recent thoughts are listed under Memory."))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {

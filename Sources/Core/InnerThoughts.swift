@@ -9,6 +9,8 @@ struct MemoryDigest: Equatable {
         /// When to ask how it went, and what about.
         var followUp: Date?
         var followUpNote: String?
+        /// Its emotional tone for the owner, −1…1 (nil: not given).
+        var emotion: Double? = nil
     }
 
     struct Fact: Equatable {
@@ -44,10 +46,12 @@ struct MemoryDigest: Equatable {
                     "type": "array",
                     "items": [
                         "type": "object", "additionalProperties": false,
-                        "required": ["text", "importance", "follow_up_at", "follow_up"],
+                        "required": ["text", "importance", "emotion", "follow_up_at", "follow_up"],
                         "properties": [
                             "text": ["type": "string"],
                             "importance": ["type": "integer", "description": "1–10."],
+                            "emotion": ["anyOf": [["type": "null"], ["type": "number"]],
+                                        "description": "Emotional tone for the owner, -1 (very negative) to 1 (very positive)."],
                             "follow_up_at": ["anyOf": [["type": "null"], ["type": "string"]], "description": "yyyy-MM-dd HH:mm, local time."],
                             "follow_up": nullableString,
                         ],
@@ -95,6 +99,7 @@ struct MemoryDigest: Equatable {
             for e in json["episodes"]?.array ?? [] {
                 guard let t = text(e["text"]), t.count >= 4 else { continue }
                 var episode = Episode(text: t, importance: importance(e["importance"]))
+                episode.emotion = e["emotion"]?.double.map { max(-1, min(1, $0)) }
                 if let at = text(e["follow_up_at"]).flatMap({ parseTime($0, calendar: calendar) }),
                    at > now.addingTimeInterval(-86400), at < now.addingTimeInterval(30 * 86400) {
                     episode.followUp = max(at, now.addingTimeInterval(1800))
@@ -136,8 +141,9 @@ enum InnerThoughts {
         [
             "type": "object",
             "additionalProperties": false,
-            "required": ["thoughts", "dance"],
+            "required": ["thoughts", "dance", "mood"],
             "properties": [
+                "mood": Feeling.schema,
                 "dance": ["anyOf": [["type": "null"], ["type": "boolean"]],
                           "description": "Only when the trigger is music: whether to sway to it; otherwise null."],
                 "thoughts": [
@@ -176,6 +182,15 @@ enum InnerThoughts {
         return nil
     }
 
+    /// How the pet feels after thinking ("mood" beside the thoughts); nil when unchanged or not said.
+    static func mood(_ raw: String) -> FeelingReport? {
+        for candidate in PetReply.jsonCandidates(in: raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            guard let json = try? JSON.parse(candidate), json["thoughts"] != nil else { continue }
+            return FeelingReport.parse(json["mood"])
+        }
+        return nil
+    }
+
     /// Whether the pet chose to sway to the music ("dance" beside the thoughts); nil when it did not say.
     static func dance(_ raw: String) -> Bool? {
         for candidate in PetReply.jsonCandidates(in: raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
@@ -186,9 +201,10 @@ enum InnerThoughts {
     }
 
     /// The urge needed to speak: the talkativeness setting's base, half a point higher for each of the last remarks
-    /// the owner left unanswered (up to three; someone who is ignored talks less), at most 5.
-    static func threshold(base: Double, unanswered: Int) -> Double {
-        min(5, base + 0.5 * Double(max(0, min(unanswered, 3))))
+    /// the owner left unanswered (up to three; someone who is ignored talks less), lowered by `moodShift` (Affect: a
+    /// lively pet speaks more readily, a drowsy one less), within 1…5.
+    static func threshold(base: Double, unanswered: Int, moodShift: Double = 0) -> Double {
+        min(5, max(1, base + 0.5 * Double(max(0, min(unanswered, 3))) - moodShift))
     }
 
     /// How alike two remarks are, 0…1 (cosine of their terms), for leaving out repetitions.

@@ -994,6 +994,7 @@ final class AppController: NSObject, NSApplicationDelegate, PetWindowDelegate, N
         brain.musicPlaying = playing
         if playing {
             musicStarted = Date()
+            MindState.shared.nudge(dv: 0.1, da: 0.15, because: "主人开始放音乐")
             brain.consider(.music)
             return
         }

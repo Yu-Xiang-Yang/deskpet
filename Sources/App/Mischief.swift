@@ -154,6 +154,7 @@ final class Mischief {
         if now < sulkingUntil {
             pet.play(.shake)
             pet.meow(.angry)
+            MindState.shared.nudge(dv: -0.1, da: 0.1, because: "还在生气时主人又来摸头")
             onEvent?("你还在为被摸太多次生气，主人又来摸你的头")
             return true
         }
@@ -163,6 +164,7 @@ final class Mischief {
         sulkingUntil = now.addingTimeInterval(30)
         pet.play(.shake)
         pet.meow(.angry)
+        MindState.shared.nudge(dv: -0.35, da: 0.3, because: "主人在很短的时间里连续摸了好几次头")
         onEvent?("主人在很短的时间里连续摸了你好几次头，你有点生气了，要躲开一会儿")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.stompOff() }
         return true

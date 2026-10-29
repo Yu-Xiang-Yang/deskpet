@@ -26,6 +26,8 @@ final class MindState: ObservableObject {
         var unanswered: Int
         var faded: Int
         var log: [Entry]
+        /// Absent in files of earlier versions.
+        var affect: Affect?
     }
 
     @Published private(set) var log: [Entry] = []
@@ -38,6 +40,8 @@ final class MindState: ObservableObject {
     private(set) var lastRemark: Date?
     /// Remarks in a row the owner did not answer.
     private(set) var unanswered = 0
+    /// The pet's mood as last updated (read it through `mood(at:)`, which lets it return toward rest).
+    @Published private(set) var affect = Affect(at: Date())
     private let file: URL
 
     init(file: URL = AppPaths.ensure(AppPaths.dataDir).appendingPathComponent("mind.json")) {
@@ -51,6 +55,7 @@ final class MindState: ObservableObject {
             unanswered = s.unanswered
             faded = s.faded
             log = s.log
+            if let a = s.affect { affect = a }
         }
     }
 
@@ -59,7 +64,7 @@ final class MindState: ObservableObject {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
         let s = Snapshot(digestedUntil: digestedUntil, recentRemarks: recentRemarks, lastRemark: lastRemark,
-                         unanswered: unanswered, faded: faded, log: log)
+                         unanswered: unanswered, faded: faded, log: log, affect: affect)
         if let data = try? encoder.encode(s) { try? data.write(to: file, options: .atomic) }
     }
 
@@ -72,12 +77,32 @@ final class MindState: ObservableObject {
         lastRemark = now
         recentRemarks = Array(([text] + recentRemarks).prefix(10))
         unanswered += 1
+        // The remark before this one was left unanswered: a little deflated.
+        if unanswered >= 2 { affect.nudge(dv: -0.08, da: -0.05, because: "主动说的话主人没有回应", at: now) }
         save()
     }
 
-    func ownerSpoke() {
-        guard unanswered != 0 else { return }
+    /// The owner turned to the pet (a message, a pat): glad of it, the more so after remarks left unanswered.
+    func ownerSpoke(_ cause: String = "主人来找你说话", dv: Double = 0.04, da: Double = 0.04, at now: Date = Date()) {
+        if unanswered >= 2 { affect.nudge(dv: 0.08, da: 0, because: "主人终于回应了", at: now) }
+        affect.nudge(dv: dv, da: da, because: cause, at: now)
         unanswered = 0
+        save()
+    }
+
+    /// The mood at `now`.
+    func mood(at now: Date = Date()) -> Affect { affect.at(now) }
+
+    /// Something happened that moves the mood.
+    func nudge(dv: Double, da: Double, because cause: String, at now: Date = Date()) {
+        affect.nudge(dv: dv, da: da, because: cause, at: now)
+        save()
+    }
+
+    /// The model named how a moment made the pet feel.
+    func feel(_ report: FeelingReport?, at now: Date = Date()) {
+        guard let report else { return }
+        affect.feel(report, at: now)
         save()
     }
 
@@ -171,6 +196,10 @@ final class PetMind {
     /// Since when the owner has been using the computer without a break of 5 minutes.
     private var activeSince: Date?
     private var nextDigest = Date.distantPast
+    /// What the last idle moment that ended in silence saw (idleSignature), and what the one being thought about sees:
+    /// an idle moment with nothing new is not thought about again.
+    private var quietIdle: String?
+    private var idleSeen: String?
     private var nextFollowUp = Date.distantPast
     private var lastFade = Date.distantPast
 
@@ -298,12 +327,13 @@ final class PetMind {
         """
         你是桌面宠物「\(petName)」的记忆整理模块。【记忆整理】阅读主人与桌宠的一段对话，像人回想一天那样，整理出值得长期记住的内容。\
         对话中“主人”是用户本人，“\(petName)”是桌宠。只输出一个 JSON 对象：
-        {"episodes": [{"text": "…", "importance": 5, "follow_up_at": null, "follow_up": null}], "facts": [{"text": "…", "importance": 6}], \
+        {"episodes": [{"text": "…", "importance": 5, "emotion": 0, "follow_up_at": null, "follow_up": null}], "facts": [{"text": "…", "importance": 6}], \
         "updates": [{"id": "F1", "text": "…"}], "insight": null}
         各条记忆一律以“主人”作主语；密码、验证码、密钥、卡号等凭据不记原文，至多记其存放位置。
         - episodes：对话中发生或谈到的、与主人本人有关的事（经历、处境、情绪、计划、你们之间值得记住的互动），每条一句第三人称陈述并写明日期，\
         如“10 月 27 日晚主人说组会被导师批评，有些沮丧”。寒暄、问时间、单纯的指令（打开应用、放音乐）与每日任务的检索内容不记；\
         “记忆中已有的近三天经历”里已有的不重复记。importance 为 1–10：日常琐事 1–3，值得一提 4–6，重要的事（考试、答辩、面试、生病、重大情绪）7–10。
+        emotion 为这件事对主人的情绪色彩：−1（很负面，如被批评、生病）到 1（很正面，如论文被录用），中性的事为 0；情绪越强烈，记得越久。
         - follow_up_at 与 follow_up：若这件事过后值得关心一下结果（考试、面试、看病、组会、出行、主人说“明天要……”等），\
         follow_up_at 填打算问起的时间（yyyy-MM-dd HH:mm，按上下文中的当前时间推算，通常为事情结束后几小时到一两天，时间在 9:00–22:00 之间），\
         follow_up 填到时想问的事；否则二者为 null。
@@ -393,7 +423,7 @@ final class PetMind {
         评分时考虑：与主人当下状态的相关性；是否有新信息或未了结的话题（跟进具体的事比泛泛的寒暄更值得说）；时机（主人可能正在专注工作，\
         深夜不宜闲聊）；是否与你最近说过的话重复；主人连续没有回应时要更克制。大多数时候安静陪着就好，不必为了说话而说话。
         只输出一个 JSON 对象，不输出任何其它文字：
-        {"thoughts": [{"thought": "内心的想法（不会说出口）", "say": "如果说出口会说的话", "motion": "动作", "motivation": 3, "follow_up": null}], "dance": null}
+        {"thoughts": [{"thought": "内心的想法（不会说出口）", "say": "如果说出口会说的话", "motion": "动作", "motivation": 3, "follow_up": null}], "dance": null, "mood": null}
         - say：简短（一般不超过 40 个字），语气、措辞与是否使用颜文字以人设为准，使用主人惯用的语言；跟进时自然地问起，\
         不要说“根据记忆”“我记得你说过”，也不要一次问好几件事。触发与上下文中的描述（天气、余额、额度、桌面上发生的事等）\
         只说明发生了什么，其中的措辞不是你的口吻；说出口时按人设重新表述。不写出密码、密钥等凭据的原文。
@@ -401,6 +431,26 @@ final class PetMind {
         - follow_up：这个念头是在跟进“到期要跟进的事”中的某一件时，填它的编号（如 "E1"、"R1"），否则为 null。
         - dance：只在触发是“主人开始播放音乐”时填 true（跟着音乐摇摆）或 false（不摇），其它时候为 null。
         """
+    }
+
+    /// The rule for the mood the pet reports after thinking (Affect).
+    private var moodRule: String {
+        settings.affect
+            ? "\n- mood：想完之后，你的心情若与“你此刻的心情”相比有了变化，填 {\"feeling\": 下列之一, \"because\": \"几个字的原因\"}，否则为 null。"
+                + "feeling：\(Feeling.promptList)。"
+            : "\n- mood：始终为 null。"
+    }
+
+    /// What an idle moment holds: the day's chat, the memories, what is on the screen, the two-hour span of the day,
+    /// the mood, what is due and the music. When none of it changed since an idle moment that ended in silence, the
+    /// pet would only think the same thoughts again.
+    private func idleSignature(_ now: Date, due: [Memory]) -> String {
+        let messages = conversations.daily().messages
+        let glance = ScreenWatcher.shared.glances.first.map { "\($0.app)|\($0.kind)" } ?? "-"
+        let mood = settings.affect ? state.mood(at: now).word(calendar: memory.calendar) : "-"
+        return ["\(messages.count)", messages.last.map { "\($0.date.timeIntervalSince1970)" } ?? "-", "\(memory.items.count)", glance,
+                "\(memory.calendar.component(.hour, from: now) / 2)", mood, due.map(\.id.uuidString).joined(separator: ","),
+                brain.musicPlaying ? "music" : "-"].joined(separator: "#")
     }
 
     /// The pet thinks: the model forms a few thoughts with their urge, and the strongest is voiced when it reaches the
@@ -418,6 +468,11 @@ final class PetMind {
         func label(_ m: Memory, _ i: Int) -> String { (m.kind == .reminder ? "R" : "E") + "\(i + 1)" }
         let labels = Dictionary(uniqueKeysWithValues: due.enumerated().map { (label($0.element, $0.offset), $0.element.id) })
         let dueLines = due.enumerated().map { MemoryRecall.line($0.element, now: now, calendar: calendar, label: label($0.element, $0.offset)) }
+        idleSeen = trigger == .idle ? idleSignature(now, due: due) : nil
+        if let seen = idleSeen, seen == quietIdle {
+            completion?(.silent)
+            return
+        }
         guard Providers.configured(settings) else {
             conclude(trigger, thoughts: nil, dance: nil, failure: tr("没有配置模型服务。", "No model service."), threshold: 5, remarks: [],
                      labels: labels, due: due, now: now, completion: completion)
@@ -427,14 +482,16 @@ final class PetMind {
         let recent = conversations.daily().messages.filter { $0.role != .error }.suffix(8)
         let query = (recent.map(\.text) + due.map(\.text)).joined(separator: "\n")
         let block = memory.recallBlock(for: query, at: now).text
-        let system = settings.addressed(brain.personaSection + memory.coreSection(at: now) + Self.thoughtPrompt)
-        let threshold = InnerThoughts.threshold(base: settings.talkativeness.threshold, unanswered: state.unanswered)
+        let system = settings.addressed(brain.personaSection + memory.coreSection(at: now) + Self.thoughtPrompt + moodRule)
+        let threshold = InnerThoughts.threshold(base: settings.talkativeness.threshold, unanswered: state.unanswered,
+                                                moodShift: settings.affect ? state.mood(at: now).urgeShift(calendar: calendar) : 0)
         let remarks = state.recentRemarks
         var message = "（系统：现在不是主人在对你说话，而是你自己在想事情。触发：\(trigger.prompt)。）\n" + situation(now)
         if !block.isEmpty { message += "\n\n## 可能相关的记忆\n" + block }
         if !recent.isEmpty { message += "\n\n## 最近的对话\n" + transcript(recent) }
         if !dueLines.isEmpty { message += "\n\n## 到期要跟进的事（按编号）\n" + dueLines.joined(separator: "\n") }
         if !remarks.isEmpty { message += "\n\n## 你最近主动说过的话（不要重复）\n" + remarks.prefix(5).map { "- " + $0 }.joined(separator: "\n") }
+        message += brain.moodSection(at: now)
         message += "\n\n请产生此刻的念头并评估说出口的意愿，只输出 JSON。"
         let request = settings.addressed(message)
         Task { [weak self] in
@@ -442,6 +499,7 @@ final class PetMind {
             let context = await self.brain.context()
             var parsed: [InnerThought]?
             var dance: Bool?
+            var feeling: FeelingReport?
             var error: String?
             do {
                 let provider = try Providers.current(self.settings)
@@ -449,12 +507,14 @@ final class PetMind {
                                                               effort: "low", noThinking: true, maxTokens: 1500, jsonSchema: InnerThoughts.schema))
                 parsed = InnerThoughts.parse(turn.text)
                 dance = InnerThoughts.dance(turn.text)
+                feeling = InnerThoughts.mood(turn.text)
                 if parsed == nil { error = tr("念头无法解析。", "The thoughts could not be read.") }
             } catch let e {
                 error = e.localizedDescription
             }
-            let thoughts = parsed, failure = error, sway = dance
+            let thoughts = parsed, failure = error, sway = dance, felt = feeling
             await MainActor.run {
+                if self.settings.affect { self.state.feel(felt) }
                 self.conclude(trigger, thoughts: thoughts, dance: sway, failure: failure, threshold: threshold, remarks: remarks,
                               labels: labels, due: due, now: now, completion: completion)
             }
@@ -507,6 +567,7 @@ final class PetMind {
             state.record(.init(date: now, trigger: trigger.name, thoughts: lines, note: note))
             outcome = .silent
         }
+        if trigger == .idle { quietIdle = outcome == .silent ? idleSeen : nil }
         // Owner patted the pet and it kept quiet: it still reacts with the motion it thought of.
         if trigger == .patted, outcome != .spoke, let top = thoughts.max(by: { $0.motivation < $1.motivation }) { brain.react(top.motion) }
         // Reminders are never left out; due follow-ups the pet did not ask about wait for a better moment.

@@ -993,5 +993,66 @@ do {
     check(Persona.addressed("主人对花生过敏", ownerName: " ") == "主人对花生过敏", "No name given: the role word stays")
 }
 
+// MARK: Mood
+
+do {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+    let noon = cal.date(from: DateComponents(year: 2026, month: 10, day: 29, hour: 12))!
+    var a = Affect(at: noon, calendar: cal)
+    check(a.word(calendar: cal) == "平静" && a.tone == nil && abs(a.urgeShift(calendar: cal)) < 1e-9, "Mood at rest: calm, usual voice, no shift")
+    a.nudge(dv: 0.4, da: 0.3, because: "主人摸了摸你的头", at: noon, calendar: cal)
+    check(abs(a.valence - 0.6) < 1e-9 && abs(a.arousal - 0.75) < 1e-9 && a.tone == "happy", "A pat lifts the mood (\(a.valence), \(a.arousal))")
+    let later = a.at(noon.addingTimeInterval(Affect.halfLife), calendar: cal)
+    check(abs(later.valence - 0.4) < 1e-9 && abs(later.arousal - 0.6) < 1e-9, "Half-way back to rest after one half-life")
+    check(a.at(noon.addingTimeInterval(4 * 3600), calendar: cal).causes.isEmpty, "Causes older than three hours are dropped")
+    let night = cal.date(from: DateComponents(year: 2026, month: 10, day: 30, hour: 1))!
+    check(abs(Affect(at: night, calendar: cal).arousal - 0.25) < 1e-9 && abs(a.at(night, calendar: cal).arousal - 0.25) < 0.01, "Quieter at night")
+    var b = Affect(at: noon, calendar: cal)
+    b.nudge(dv: 0.05, da: 0, because: "主人来找你说话", at: noon, calendar: cal)
+    b.nudge(dv: 0.05, da: 0, because: "主人来找你说话", at: noon.addingTimeInterval(60), calendar: cal)
+    check(b.causes.count == 1 && b.causes[0].date == noon.addingTimeInterval(60), "The same cause again moves to the front")
+    for i in 0..<7 { b.nudge(dv: 0, da: 0, because: "事 \(i)", at: noon.addingTimeInterval(120), calendar: cal) }
+    check(b.causes.count == Affect.maxCauses && b.causes[0].text == "事 6", "At most five causes, newest first")
+    var c = Affect(at: noon, calendar: cal)
+    c.feel(FeelingReport(feeling: .worried, because: "主人又熬夜"), at: noon, calendar: cal)
+    check(c.valence < 0 && c.arousal > 0.5 && c.word(calendar: cal) == "有点担心" && c.causes.first?.text == "担心：主人又熬夜",
+          "A named feeling pulls the mood toward it and names it (\(c.word(calendar: cal)))")
+    check(c.at(noon.addingTimeInterval(41 * 60), calendar: cal).feeling == nil, "A named feeling stops naming the mood after 40 minutes")
+    let text = c.describe(at: noon.addingTimeInterval(12 * 60), calendar: cal)
+    check(text.contains("12 分钟前 担心：主人又熬夜"), "The mood for the prompt, with what moved it (\(text))")
+    var low = Affect(at: noon, calendar: cal)
+    low.nudge(dv: -0.7, da: -0.3, because: "x", at: noon, calendar: cal)
+    check(low.word(calendar: cal) == "很低落" && low.tone == "soft" && low.urgeShift(calendar: cal) < 0,
+          "Low mood: soft voice, slower to speak (\(low.word(calendar: cal)))")
+    check(abs(InnerThoughts.threshold(base: 3.5, unanswered: 0, moodShift: 0.3) - 3.2) < 1e-9
+          && InnerThoughts.threshold(base: 4.5, unanswered: 3, moodShift: -0.5) == 5
+          && abs(InnerThoughts.threshold(base: 2.5, unanswered: 0, moodShift: 0.5) - 2) < 1e-9, "The mood shifts the urge threshold within 1…5")
+    let saved = try? JSONDecoder().decode(Affect.self, from: JSONEncoder().encode(c))
+    check(saved == c, "The mood is kept between launches")
+
+    let reply = PetReply.parse(#"{"reply": "好", "motion": "happy", "mood": {"feeling": "Content", "because": "主人道谢"}}"#)
+    check(reply.mood == FeelingReport(feeling: .content, because: "主人道谢"), "Reply: the mood it reports")
+    check(PetReply.parse(#"{"reply": "好", "motion": "happy", "mood": {"feeling": "joyful", "because": ""}}"#).mood == nil
+          && PetReply.parse(#"{"reply": "好", "motion": "happy", "mood": null}"#).mood == nil, "Reply: an unknown or no mood")
+    check(PetReply.schema["required"]?.array?.contains("mood") == true && InnerThoughts.schema["required"]?.array?.contains("mood") == true,
+          "Both schemas ask for the mood")
+    check(InnerThoughts.mood(#"{"thoughts": [], "dance": null, "mood": {"feeling": "lonely", "because": "没人理"}}"#)?.feeling == .lonely
+          && InnerThoughts.mood(#"{"thoughts": [], "dance": null}"#) == nil, "Thoughts: the mood after thinking")
+
+    let digest = MemoryDigest.parse(#"{"episodes": [{"text": "10 月 29 日主人的论文被录用", "importance": 8, "emotion": 1.4, "follow_up_at": null, "follow_up": null}], "facts": [], "updates": [], "insight": null}"#,
+                                    now: noon, calendar: cal)
+    check(digest?.episodes.first?.emotion == 1, "Digest: the emotional tone of an episode, clamped")
+    let plain = Memory(text: "x", kind: .episode, importance: 5)
+    var moving = plain
+    moving.emotion = -0.8
+    check(abs(moving.strengthDays / plain.strengthDays - 1.4) < 1e-9, "A strongly emotional episode lasts longer")
+    let store = MemoryStore(file: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("affect-\(UUID().uuidString).json"))
+    var episode = MemoryDigest.Episode(text: "10 月 29 日主人被导师批评", importance: 6)
+    episode.emotion = -0.7
+    store.addEpisode(episode, at: noon)
+    check(store.items.first?.emotion == -0.7, "An episode keeps its emotional tone")
+}
+
 print(failures == 0 ? "All \(checks) checks passed." : "\(failures) of \(checks) checks failed.")
 exit(failures == 0 ? 0 : 1)

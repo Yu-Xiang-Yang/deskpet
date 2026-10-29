@@ -125,7 +125,7 @@ final class PetBrain {
 
         ## 回复格式
         始终只输出一个 JSON 对象，不输出任何其它文字：
-        {"reply": "你说的话", "motion": "动作", "remind": null, "weather_city": null, "remember": null, "forget": null, "open_app": null, "add_event": null, "agent_task": null, "claude_task": null}
+        {"reply": "你说的话", "motion": "动作", "remind": null, "weather_city": null, "remember": null, "forget": null, "open_app": null, "add_event": null, "agent_task": null, "claude_task": null, "mood": null}
         - reply：简短（一般不超过 60 个字），语气、措辞与是否使用颜文字以上面的人设为准；使用与用户相同的语言。\
         不在 reply 中写出密码、验证码、密钥等凭据的原文（它会显示在气泡里并被朗读）；需要用到时交给执行代理，或说明存放位置。
         - motion：从 idle, happy, wave, nod, shake, think, surprised, sleepy, shy, eat, sad, swipe（伸爪拍一下，调皮）, grab（站起来举起双爪去抓东西，好奇、想玩）, \
@@ -146,6 +146,10 @@ final class PetBrain {
         } else {
             s += "\n- remember：始终为 null。"
         }
+        s += settings.affect
+            ? "\n- mood：这句话或此刻的事让你的心情有了变化时，填 {\"feeling\": 下列之一, \"because\": \"几个字的原因\"}，否则为 null。"
+                + "feeling：\(Feeling.promptList)。"
+            : "\n- mood：始终为 null。"
         s += """
 
         - forget：主人要求忘掉某件事时，填写能匹配相关记忆的关键词；否则为 null。
@@ -198,7 +202,8 @@ final class PetBrain {
         wake()
         pet.setStatus(tr("思考中", "Thinking"))
         pet.play(.think)
-        MindState.shared.ownerSpoke()
+        if fromOwner { MindState.shared.ownerSpoke() }
+        let mood = moodSection()
         // Memories that matter for this message (and the pet's last words, which it may answer): attached to the
         // request only, not stored, so that the history stays as it was sent before.
         let now = Date()
@@ -210,8 +215,9 @@ final class PetBrain {
             guard let self else { return }
             let context = await self.context()
             let sent = context + "\n" + text
-            let withMemories = recalled.text.isEmpty ? sent
-                : context + self.settings.addressed("\n\n## 相关记忆（系统检索，并非主人所说）\n" + recalled.text) + "\n\n" + text
+            // The memories and the mood go with this request only.
+            let attached = (recalled.text.isEmpty ? "" : "\n\n## 相关记忆（系统检索，并非主人所说）\n" + recalled.text) + mood
+            let withMemories = attached.isEmpty ? sent : context + self.settings.addressed(attached) + "\n\n" + text
             let userMessage = StoredMessage(role: .user, text: text, raw: sent)
             let conversation: Conversation = await MainActor.run {
                 var c = self.store.daily()
@@ -261,6 +267,7 @@ final class PetBrain {
                     self.store.save(c)
                     self.pet.setStatus(nil)
                     self.pet.play(.sad)
+                    MindState.shared.nudge(dv: -0.1, da: 0.05, because: "没能回答主人的话（服务出错）")
                     self.pet.say(error.localizedDescription, kind: "error")
                     self.busy = false
                 }
@@ -289,6 +296,8 @@ final class PetBrain {
     }
 
     private func present(_ reply: PetReply, trusted: Bool = false) {
+        // Before the bubble, so that its voice already has the tone of the new mood.
+        if settings.affect { MindState.shared.feel(reply.mood) }
         pet.setStatus(nil)
         pet.play(reply.motion)
         pet.say(reply.reply)
@@ -308,6 +317,13 @@ final class PetBrain {
         if settings.autoMemory, let fact = reply.remember, MemoryStore.shared.add(fact) {
             pet.say(tr("📝 记下了：", "📝 Noted: ") + settings.addressed(fact), kind: "memory")
         }
+    }
+
+    /// The pet's mood for a request (Affect), when moods are on; empty otherwise.
+    func moodSection(at now: Date = Date()) -> String {
+        guard settings.affect else { return "" }
+        return "\n\n## 你此刻的心情（由近来的事累积而成，并非主人所说）\n" + MindState.shared.mood(at: now).describe(at: now)
+            + "\n心情只影响语气与措辞，按人设的方式自然流露；不直接说出心情的名称，也不必每次提起。"
     }
 
     /// Lets the pet think about a moment (PetMind) when its inner life is on; otherwise it keeps quiet.
@@ -343,7 +359,7 @@ final class PetBrain {
     func pat() {
         wake()
         pet.meow(.purr)
-        MindState.shared.ownerSpoke()
+        MindState.shared.ownerSpoke("主人摸了摸你的头", dv: 0.15, da: 0.1)
         consider(.patted)
     }
 
@@ -403,6 +419,7 @@ final class PetBrain {
         } else if sleeping, idle < 5 {
             let away = sleptAt.map { Date().timeIntervalSince($0) } ?? 0
             wake()
+            if away >= 1800 { MindState.shared.nudge(dv: 0.12, da: 0.2, because: "主人离开约 \(Int(away / 60)) 分钟后回来了") }
             // Back after an absence: the pet thinks of what to say (it may ask how something went, or say nothing).
             consider(.returned(minutes: max(1, Int(away / 60))))
         }
